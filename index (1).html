@@ -1,0 +1,2111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>EduManage Pro — Ghana Education Service</title>
+  <link rel="stylesheet" href="style.css"/>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+</head>
+<body>
+
+  <!-- ─── UNSAVED CHANGES BANNER ─── -->
+  <div id="unsavedBanner"><i class="fas fa-exclamation-triangle"></i> You have unsaved changes — <button onclick="saveNow()" style="background:rgba(255,255,255,.25);border:none;color:#fff;font-weight:800;cursor:pointer;padding:2px 10px;border-radius:5px;font-size:12px;">Save Now</button></div>
+
+  <!-- ─── SCHOOL SELECTOR ─── -->
+  <div id="schoolSelector" class="login-screen" style="display:none;">
+    <div class="login-card" style="max-width:480px;">
+      <div class="login-logo"><i class="fas fa-graduation-cap"></i></div>
+      <h1 class="login-title">EduManage Pro</h1>
+      <p class="login-sub">Ghana Education Service · Multi-School Portal</p>
+      <p style="font-size:13px;color:var(--text-muted);margin:18px 0 10px;font-weight:600;text-align:left;">SELECT YOUR SCHOOL</p>
+      <div id="schoolListContainer" style="max-height:280px;overflow-y:auto;"></div>
+      <button class="btn-primary" id="registerSchoolBtn" style="width:100%;margin-top:16px;justify-content:center;">
+        <i class="fas fa-plus"></i> Register New School
+      </button>
+      <p class="login-hint" style="margin-top:12px;">Each school's data is completely private and isolated.</p>
+    </div>
+  </div>
+
+  <!-- ─── REGISTER NEW SCHOOL MODAL ─── -->
+  <div class="modal-overlay" id="registerSchoolModal" style="z-index:10000;">
+    <div class="modal" style="max-width:440px;">
+      <div class="modal-head">
+        <h3><i class="fas fa-school"></i> Register New School</h3>
+        <button class="modal-close" id="closeRegisterModal"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>School Name <span style="color:var(--red)">*</span></label>
+          <input type="text" class="form-input" id="newSchoolName" placeholder="e.g. Accra Primary School"/>
+        </div>
+        <div class="form-group">
+          <label>Administrator's Full Name</label>
+          <input type="text" class="form-input" id="newSchoolAdmin" placeholder="e.g. Mr. Kwesi Appiah"/>
+        </div>
+        <div class="form-group">
+          <label>Admin Username <span style="color:var(--red)">*</span></label>
+          <input type="text" class="form-input" id="newSchoolUsername" placeholder="e.g. admin" autocomplete="off"/>
+        </div>
+        <div class="form-group">
+          <label>Admin Password <span style="color:var(--red)">*</span></label>
+          <div class="password-input-wrap">
+            <input type="password" class="form-input" id="newSchoolPassword" placeholder="Min. 6 characters" autocomplete="new-password"/>
+            <button type="button" id="toggleNewSchoolPwd" class="pwd-toggle-btn"><i class="fas fa-eye"></i></button>
+          </div>
+          <p style="font-size:11px;color:var(--text-light);margin-top:4px;">⚠️ Remember this — it cannot be recovered without the backup file.</p>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn-ghost" id="cancelRegisterModal">Cancel</button>
+        <button class="btn-primary" id="confirmRegisterBtn"><i class="fas fa-check"></i> Register School</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── LOGIN SCREEN ─── -->
+  <div id="loginScreen" class="login-screen" style="display:none;">
+    <div class="login-card">
+      <div class="login-logo"><i class="fas fa-graduation-cap"></i></div>
+      <h1 class="login-title" id="loginSchoolName">School Name</h1>
+      <p class="login-sub">Sign in to continue</p>
+      <div class="form-group" style="margin-top:24px;">
+        <label>Username</label>
+        <input type="text" class="form-input" id="loginUsername" placeholder="Enter username" autocomplete="username"/>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <div class="password-input-wrap">
+          <input type="password" class="form-input" id="loginPassword" placeholder="Enter password" autocomplete="current-password"/>
+          <button type="button" id="toggleLoginPwd" class="pwd-toggle-btn"><i class="fas fa-eye"></i></button>
+        </div>
+      </div>
+      <div class="login-error" id="loginError" style="display:none;"><i class="fas fa-exclamation-circle"></i> Invalid username or password.</div>
+      <button class="btn-primary" id="loginBtn" style="width:100%;margin-top:16px;justify-content:center;"><i class="fas fa-sign-in-alt"></i> Sign In</button>
+      <button class="btn-ghost" id="backToSchoolsBtn" style="width:100%;margin-top:8px;justify-content:center;"><i class="fas fa-arrow-left"></i> Back to Schools</button>
+    </div>
+  </div>
+
+  <!-- ─── APP ─── -->
+  <div id="appWrapper" style="display:none;width:100%;min-height:100vh;">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-logo-wrap" id="sidebarLogoWrap">
+        <div class="brand-icon" id="brandIconDefault"><i class="fas fa-graduation-cap"></i></div>
+        <img id="sidebarLogoImg" class="sidebar-logo-img" src="" alt="School Logo" style="display:none;"/>
+      </div>
+      <div class="brand-text">
+        <span class="brand-name" id="sidebarSchoolName">EduManage</span>
+        <span class="brand-pro">GES · PRO</span>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <p class="nav-label">Main Menu</p>
+      <a href="#" class="nav-item active" data-section="dashboard"><i class="fas fa-th-large"></i><span>Dashboard</span></a>
+      <a href="#" class="nav-item" data-section="admissions"><i class="fas fa-file-signature"></i><span>Admissions</span></a>
+      <a href="#" class="nav-item" data-section="students"><i class="fas fa-user-graduate"></i><span>Pupils</span></a>
+      <a href="#" class="nav-item" data-section="reports"><i class="fas fa-file-alt"></i><span>Academic Reports</span></a>
+      <a href="#" class="nav-item" data-section="fees"><i class="fas fa-credit-card"></i><span>School Fees</span></a>
+      <a href="#" class="nav-item" data-section="gallery"><i class="fas fa-images"></i><span>Gallery</span></a>
+      <a href="#" class="nav-item" data-section="expenditure"><i class="fas fa-receipt"></i><span>Expenditure</span></a>
+      <a href="#" class="nav-item" data-section="weekly"><i class="fas fa-calendar-week"></i><span>Weekly Output</span></a>
+      <a href="#" class="nav-item" data-section="attendance"><i class="fas fa-clipboard-check"></i><span>Attendance</span></a>
+      <p class="nav-label" style="margin-top:16px;">Tools</p>
+      <a href="#" class="nav-item" data-section="idcards"><i class="fas fa-id-card"></i><span>ID Cards</span></a>
+      <a href="#" class="nav-item" data-section="promotion"><i class="fas fa-arrow-up"></i><span>Promotion</span></a>
+      <a href="#" class="nav-item" data-section="sms"><i class="fas fa-sms"></i><span>SMS Reminders</span></a>
+      <p class="nav-label" style="margin-top:16px;">Administration</p>
+      <a href="#" class="nav-item" data-section="teachers"><i class="fas fa-chalkboard-teacher"></i><span>Teachers</span></a>
+      <a href="#" class="nav-item" data-section="classes"><i class="fas fa-school"></i><span>Classes</span></a>
+      <a href="#" class="nav-item" data-section="resources"><i class="fas fa-book-open"></i><span>Resources Library</span></a>
+      <a href="#" class="nav-item" data-section="exams"><i class="fas fa-file-pen"></i><span>Examinations</span></a>
+      <a href="#" class="nav-item" data-section="transfers"><i class="fas fa-exchange-alt"></i><span>Transfers & Withdrawal</span></a>
+      <a href="#" class="nav-item" data-section="communication"><i class="fas fa-bullhorn"></i><span>Communication</span></a>
+      <a href="#" class="nav-item" data-section="users"><i class="fas fa-users-cog"></i><span>Access Control</span></a>
+      <a href="#" class="nav-item" data-section="settings"><i class="fas fa-cog"></i><span>Settings</span></a>
+      <a href="#" class="nav-item" data-section="backup"><i class="fas fa-cloud-arrow-up"></i><span>Backup & Drive</span></a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-card">
+        <div class="user-avatar">H</div>
+        <div class="user-info">
+          <span class="user-name">Headmaster</span>
+          <span class="user-role">GES Administrator</span>
+        </div>
+      </div>
+      <div class="sidebar-footer-btns">
+        <button id="changePasswordBtn" class="btn-ghost sidebar-foot-btn" title="Change Password"><i class="fas fa-key"></i> Change Password</button>
+        <button id="logoutBtn" class="btn-ghost sidebar-foot-btn" style="display:none;"><i class="fas fa-sign-out-alt"></i> Logout</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ─── CHANGE PASSWORD MODAL ─── -->
+  <div class="modal-overlay" id="changePasswordModal" style="z-index:10001;">
+    <div class="modal" style="max-width:400px;">
+      <div class="modal-head">
+        <h3><i class="fas fa-key"></i> Change Password</h3>
+        <button class="modal-close" id="closeChangePwdModal"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">You are changing the password for: <strong id="changePwdUsername" style="color:var(--blue);"></strong></p>
+        <div class="form-group">
+          <label>Current Password <span style="color:var(--red)">*</span></label>
+          <div class="password-input-wrap">
+            <input type="password" class="form-input" id="cpCurrentPwd" placeholder="Enter current password" autocomplete="current-password"/>
+            <button type="button" class="pwd-toggle-btn" onclick="togglePwdField('cpCurrentPwd',this)"><i class="fas fa-eye"></i></button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>New Password <span style="color:var(--red)">*</span></label>
+          <div class="password-input-wrap">
+            <input type="password" class="form-input" id="cpNewPwd" placeholder="Min. 6 characters" autocomplete="new-password"/>
+            <button type="button" class="pwd-toggle-btn" onclick="togglePwdField('cpNewPwd',this)"><i class="fas fa-eye"></i></button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Confirm New Password <span style="color:var(--red)">*</span></label>
+          <div class="password-input-wrap">
+            <input type="password" class="form-input" id="cpConfirmPwd" placeholder="Repeat new password" autocomplete="new-password"/>
+            <button type="button" class="pwd-toggle-btn" onclick="togglePwdField('cpConfirmPwd',this)"><i class="fas fa-eye"></i></button>
+          </div>
+        </div>
+        <div class="login-error" id="cpError" style="display:none;"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn-ghost" id="cancelChangePwdModal">Cancel</button>
+        <button class="btn-primary" id="saveNewPasswordBtn"><i class="fas fa-save"></i> Update Password</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="overlay"></div>
+
+  <!-- MAIN -->
+  <main class="main-content">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
+        <div class="header-logo-wrap" id="headerLogoWrap" style="display:none;">
+          <img id="headerLogoImg" src="" alt="Logo" class="header-logo-img"/>
+        </div>
+        <div class="breadcrumb" id="breadcrumb">Dashboard</div>
+      </div>
+      <div class="topbar-right">
+        <span id="autosaveIndicator" style="font-size:12px;color:var(--green);opacity:0;transition:opacity .4s;">✅ Saved</span>
+        <span id="syncStatusBadge" style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:var(--green);color:#fff;display:inline-flex;align-items:center;gap:5px;"><i class="fas fa-wifi"></i> Live Sync</span>
+        <span id="autoBackupIndicator" style="font-size:11px;color:var(--teal);opacity:0;transition:opacity .6s;margin-left:4px;"></span>
+        <div class="search-wrap">
+          <i class="fas fa-search"></i>
+          <input type="text" placeholder="Search pupils, fees..." id="globalSearch"/>
+        </div>
+        <button class="icon-btn notif-btn"><i class="fas fa-bell"></i><span class="badge">3</span></button>
+        <button class="icon-btn"><i class="fas fa-user-circle"></i></button>
+      </div>
+    </header>
+
+    <!-- ─── DASHBOARD ─── -->
+    <section class="section active" id="sec-dashboard">
+      <div class="section-header">
+        <div>
+          <h1 class="section-title">Welcome, Headmaster 👋</h1>
+          <p class="section-sub">Ghana Education Service — School Management Portal</p>
+        </div>
+        <div class="header-date" id="headerDate"></div>
+      </div>
+      <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));">
+        <div class="stat-card blue"><div class="stat-icon"><i class="fas fa-user-graduate"></i></div><div class="stat-body"><span class="stat-num" id="totalStudents">0</span><span class="stat-label">Total Pupils</span><span class="stat-delta up" id="dashMaleFemaleSplit">—</span></div></div>
+        <div class="stat-card teal"><div class="stat-icon"><i class="fas fa-chalkboard-teacher"></i></div><div class="stat-body"><span class="stat-num" id="totalTeachers">0</span><span class="stat-label">Teachers</span><span class="stat-delta up"><i class="fas fa-arrow-up"></i> Active staff</span></div></div>
+        <div class="stat-card green"><div class="stat-icon"><i class="fas fa-money-bill-wave"></i></div><div class="stat-body"><span class="stat-num" id="totalCollected">GH₵0</span><span class="stat-label">Fees Collected</span><span class="stat-delta up" id="feePctDash"></span></div></div>
+        <div class="stat-card red"><div class="stat-icon"><i class="fas fa-exclamation-circle"></i></div><div class="stat-body"><span class="stat-num" id="totalOutstanding">0</span><span class="stat-label">Outstanding Fees</span><span class="stat-delta down"><i class="fas fa-arrow-down"></i> Unpaid</span></div></div>
+        <div class="stat-card purple" style="--purple:#7c3aed;--purple-light:#ede9fe;"><div class="stat-icon" style="background:var(--purple-light);color:var(--purple);"><i class="fas fa-school"></i></div><div class="stat-body"><span class="stat-num" id="dashTotalClasses">0</span><span class="stat-label">Classes</span><span class="stat-delta up" id="dashActiveClasses">—</span></div></div>
+        <div class="stat-card orange" style="--orange:#d97706;--orange-light:#fef3c7;"><div class="stat-icon" style="background:var(--orange-light);color:var(--orange);"><i class="fas fa-clipboard-check"></i></div><div class="stat-body"><span class="stat-num" id="dashAttToday">—</span><span class="stat-label">Attendance Rate</span><span class="stat-delta up" id="dashAttLabel">This week</span></div></div>
+      </div>
+      <div class="dash-grid">
+        <div class="card full-width">
+          <div class="card-head">
+            <h2 class="card-title"><i class="fas fa-magic"></i> Quick Report Generator</h2>
+            <span class="card-badge">GES Standard</span>
+          </div>
+          <p class="card-desc">Describe a pupil's performance and get an instant GES-style report summary.</p>
+          <textarea class="report-textarea" id="reportInput" placeholder="e.g. Kofi Mensah in Primary 5B scored 78 in Mathematics, 82 in English, 65 in Science. He is attentive but struggles with fractions..."></textarea>
+          <div class="textarea-actions">
+            <span class="char-count" id="charCount">0 / 500</span>
+            <button class="btn-primary" id="generateBtn"><i class="fas fa-wand-magic-sparkles"></i> Generate Report</button>
+          </div>
+          <div class="report-output" id="reportOutput" style="display:none;"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2 class="card-title"><i class="fas fa-clock-rotate-left"></i> Live Summary</h2><span class="card-badge" id="dashLastRefresh" style="font-size:10px;"></span></div>
+          <div id="dashLiveSummary" style="font-size:13px;line-height:1.9;color:var(--text-muted);"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2 class="card-title"><i class="fas fa-chart-pie"></i> Fee Overview by Class</h2></div>
+          <div class="fee-bars" id="feeBars"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── ADMISSIONS ─── -->
+    <section class="section" id="sec-admissions">
+      <div class="section-header">
+        <div><h1 class="section-title">Admissions</h1><p class="section-sub">Register new pupils with official GES admission forms</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-ghost" onclick="downloadAdmissionsCSV()"><i class="fas fa-download"></i> Export CSV</button>
+          <button class="btn-primary" id="newAdmissionBtn"><i class="fas fa-plus"></i> New Admission</button>
+        </div>
+      </div>
+
+      <!-- Stats row -->
+      <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:16px;">
+        <div class="stat-card blue"><div class="stat-icon"><i class="fas fa-file-signature"></i></div><div class="stat-body"><span class="stat-num" id="admTotalCount">0</span><span class="stat-label">Total Applications</span></div></div>
+        <div class="stat-card green"><div class="stat-icon"><i class="fas fa-user-check"></i></div><div class="stat-body"><span class="stat-num" id="admAdmittedCount">0</span><span class="stat-label">Admitted & Enrolled</span></div></div>
+        <div class="stat-card yellow" style="--yellow:#d97706;"><div class="stat-icon" style="background:#fef3c7;color:#d97706;"><i class="fas fa-clock"></i></div><div class="stat-body"><span class="stat-num" id="admPendingCount">0</span><span class="stat-label">Pending</span></div></div>
+        <div class="stat-card red"><div class="stat-icon"><i class="fas fa-times-circle"></i></div><div class="stat-body"><span class="stat-num" id="admRejectedCount">0</span><span class="stat-label">Not Admitted</span></div></div>
+      </div>
+
+      <!-- Admissions list -->
+      <div class="card">
+        <div class="table-toolbar">
+          <input type="text" class="table-search" id="admSearch" placeholder="Search by name or ID..."/>
+          <select class="table-filter" id="admStatusFilter" onchange="renderAdmissions()">
+            <option value="">All Status</option>
+            <option value="Pending">Pending</option>
+            <option value="Admitted">Admitted</option>
+            <option value="Not Admitted">Not Admitted</option>
+          </select>
+          <select class="table-filter" id="admClassFilter" onchange="renderAdmissions()">
+            <option value="">All Classes</option>
+            <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+            <option>KG1</option><option>KG2</option>
+            <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+            <option>BS.4</option><option>BS.5</option>
+            <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>#</th><th>Adm. No.</th><th>Pupil Name</th><th>Class</th><th>Gender</th>
+              <th>Date Applied</th><th>Status</th><th>Enrolled?</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="admTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── ADMISSION FORM MODAL ─── -->
+    <div class="modal-overlay" id="admissionModal">
+      <div class="modal" style="max-width:760px;max-height:92vh;overflow-y:auto;">
+        <div class="modal-head">
+          <h3 id="admModalTitle"><i class="fas fa-file-signature"></i> New Admission Form</h3>
+          <button class="modal-close" id="closeAdmissionModal"><i class="fas fa-times"></i></button>
+        </div>
+
+        <input type="hidden" id="admEditId" value=""/>
+
+        <!-- SECTION A: PUPIL DETAILS -->
+        <div class="adm-section-title"><i class="fas fa-user"></i> Section A — Pupil Information</div>
+        <div class="form-row">
+          <div class="form-group"><label>First Name <span class="req">*</span></label><input type="text" class="form-input" id="admFirst" placeholder="e.g. Kofi"/></div>
+          <div class="form-group"><label>Middle Name</label><input type="text" class="form-input" id="admMiddle" placeholder="e.g. Kwame"/></div>
+          <div class="form-group"><label>Last Name <span class="req">*</span></label><input type="text" class="form-input" id="admLast" placeholder="e.g. Mensah"/></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Date of Birth <span class="req">*</span></label><input type="date" class="form-input" id="admDOB"/></div>
+          <div class="form-group"><label>Gender <span class="req">*</span></label>
+            <select class="form-input" id="admGender">
+              <option value="">Select</option><option>Male</option><option>Female</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Nationality</label><input type="text" class="form-input" id="admNationality" value="Ghanaian"/></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Religion</label>
+            <select class="form-input" id="admReligion">
+              <option value="">Select</option><option>Christianity</option><option>Islam</option><option>Traditional</option><option>Other</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Previous School (if any)</label><input type="text" class="form-input" id="admPrevSchool" placeholder="Name of previous school"/></div>
+          <div class="form-group"><label>Class Applying For <span class="req">*</span></label>
+            <select class="form-input" id="admClass">
+              <option value="">Select Class</option>
+              <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+              <option>KG1</option><option>KG2</option>
+              <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+              <option>BS.4</option><option>BS.5</option>
+              <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Home Town</label><input type="text" class="form-input" id="admHomeTown" placeholder="e.g. Kumasi"/></div>
+          <div class="form-group"><label>Home Address</label><input type="text" class="form-input" id="admAddress" placeholder="Street / Area"/></div>
+          <div class="form-group"><label>Date of Admission</label><input type="date" class="form-input" id="admDate"/></div>
+        </div>
+
+        <!-- SECTION B: PARENT/GUARDIAN -->
+        <div class="adm-section-title"><i class="fas fa-users"></i> Section B — Parent / Guardian</div>
+        <div class="form-row">
+          <div class="form-group"><label>Father's Full Name</label><input type="text" class="form-input" id="admFatherName" placeholder="Full name"/></div>
+          <div class="form-group"><label>Father's Occupation</label><input type="text" class="form-input" id="admFatherOcc" placeholder="e.g. Farmer, Teacher"/></div>
+          <div class="form-group"><label>Father's Phone</label><input type="tel" class="form-input" id="admFatherPhone" placeholder="0244xxxxxx"/></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Mother's Full Name</label><input type="text" class="form-input" id="admMotherName" placeholder="Full name"/></div>
+          <div class="form-group"><label>Mother's Occupation</label><input type="text" class="form-input" id="admMotherOcc" placeholder="e.g. Trader, Nurse"/></div>
+          <div class="form-group"><label>Mother's Phone</label><input type="tel" class="form-input" id="admMotherPhone" placeholder="0244xxxxxx"/></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Guardian's Name (if different)</label><input type="text" class="form-input" id="admGuardName" placeholder="Full name"/></div>
+          <div class="form-group"><label>Relationship to Pupil</label><input type="text" class="form-input" id="admGuardRel" placeholder="e.g. Uncle, Aunt"/></div>
+          <div class="form-group"><label>Guardian's Phone <span class="req">*</span></label><input type="tel" class="form-input" id="admGuardPhone" placeholder="Primary contact phone"/></div>
+        </div>
+
+        <!-- SECTION C: HEALTH -->
+        <div class="adm-section-title"><i class="fas fa-heartbeat"></i> Section C — Health Information</div>
+        <div class="form-row">
+          <div class="form-group"><label>Blood Group</label>
+            <select class="form-input" id="admBloodGroup">
+              <option value="">Unknown</option><option>A+</option><option>A-</option>
+              <option>B+</option><option>B-</option><option>O+</option><option>O-</option>
+              <option>AB+</option><option>AB-</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Known Allergies</label><input type="text" class="form-input" id="admAllergies" placeholder="e.g. Peanuts, Penicillin or None"/></div>
+          <div class="form-group"><label>Medical Conditions</label><input type="text" class="form-input" id="admMedical" placeholder="e.g. Asthma or None"/></div>
+        </div>
+
+        <!-- SECTION D: STATUS -->
+        <div class="adm-section-title"><i class="fas fa-clipboard-check"></i> Section D — Admission Decision</div>
+        <div class="form-row">
+          <div class="form-group"><label>Admission Status</label>
+            <select class="form-input" id="admStatus">
+              <option value="Pending">Pending Review</option>
+              <option value="Admitted">Admitted</option>
+              <option value="Not Admitted">Not Admitted</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Admission Number (auto-generated)</label>
+            <input type="text" class="form-input" id="admNumber" readonly style="background:var(--bg-light);color:var(--text-muted);"/>
+          </div>
+          <div class="form-group"><label>Remarks / Notes</label><input type="text" class="form-input" id="admRemarks" placeholder="Optional notes"/></div>
+        </div>
+
+        <!-- PHOTO UPLOAD -->
+        <div class="adm-section-title"><i class="fas fa-camera"></i> Pupil Photo</div>
+        <div style="display:flex;gap:14px;align-items:center;margin-bottom:16px;">
+          <img id="admPhotoPreview" src="" style="display:none;width:80px;height:90px;object-fit:cover;border-radius:8px;border:2px solid var(--border);" data-photo=""/>
+          <div>
+            <label class="btn-ghost" style="cursor:pointer;"><i class="fas fa-upload"></i> Upload Photo
+              <input type="file" id="admPhotoInput" accept="image/*" style="display:none;"/>
+            </label>
+            <p style="font-size:11px;color:var(--text-muted);margin-top:6px;">Passport-size photo recommended</p>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;">
+          <button class="btn-primary" id="saveAdmissionBtn" style="flex:1;"><i class="fas fa-save"></i> Save Application</button>
+          <button class="btn-ghost" id="admitAndEnrollBtn" style="flex:1;"><i class="fas fa-user-plus"></i> Admit & Enroll Now</button>
+          <button class="btn-ghost" id="printAdmissionBtn"><i class="fas fa-print"></i> Print Form</button>
+          <button class="btn-ghost" id="cancelAdmissionBtn"><i class="fas fa-times"></i> Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── PUPILS ─── -->
+    <section class="section" id="sec-students">
+      <div class="section-header">
+        <div><h1 class="section-title">Pupils</h1><p class="section-sub">Manage all enrolled pupils — GES Standard</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-ghost" onclick="downloadPupilsCSV()"><i class="fas fa-download"></i> Download CSV</button>
+          <button class="btn-primary" id="addStudentBtn"><i class="fas fa-plus"></i> Add Pupil</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="table-toolbar">
+          <input type="text" class="table-search" placeholder="Search by name or class..." id="studentSearch"/>
+          <select class="table-filter" id="classFilter">
+            <option value="">All Classes</option>
+            <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+            <option>KG1</option><option>KG2</option>
+            <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+            <option>BS.4</option><option>BS.5</option>
+            <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table"><thead><tr><th>#</th><th>Full Name</th><th>Class</th><th>Gender</th><th>Guardian Phone</th><th>Fees Status</th><th>Actions</th></tr></thead>
+          <tbody id="studentTbody"></tbody></table>
+        </div>
+      </div>
+      <!-- Student Modal -->
+      <div class="modal-overlay" id="studentModal">
+        <div class="modal">
+          <div class="modal-head"><h3 id="studentModalTitle">Add New Pupil</h3><button class="modal-close" id="closeStudentModal"><i class="fas fa-times"></i></button></div>
+          <div class="modal-body">
+            <input type="hidden" id="sEditId"/>
+            <div class="form-row">
+              <div class="form-group"><label>First Name</label><input type="text" class="form-input" id="sFirstName" placeholder="e.g. Kofi"/></div>
+              <div class="form-group"><label>Last Name</label><input type="text" class="form-input" id="sLastName" placeholder="e.g. Mensah"/></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Class</label>
+                <select class="form-input" id="sClass">
+                  <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+                  <option>KG1</option><option>KG2</option>
+                  <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+                  <option>BS.4</option><option>BS.5</option>
+                  <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+                </select>
+              </div>
+              <div class="form-group"><label>Gender</label><select class="form-input" id="sGender"><option>Male</option><option>Female</option></select></div>
+            </div>
+            <div class="form-group"><label>Guardian/Parent Phone</label><input type="text" class="form-input" id="sPhone" placeholder="e.g. 024XXXXXXX"/></div>
+            <div class="form-group">
+              <label>Student Photo</label>
+              <div class="student-photo-upload">
+                <img id="sPhotoPreview" src="" alt="" style="display:none;width:80px;height:80px;object-fit:cover;border-radius:50%;border:2px solid var(--border);"/>
+                <label class="btn-ghost" for="sPhotoInput" style="cursor:pointer;"><i class="fas fa-camera"></i> Upload Photo</label>
+                <input type="file" id="sPhotoInput" accept="image/*" style="display:none;"/>
+              </div>
+            </div>
+          </div>
+          <div class="modal-foot"><button class="btn-ghost" id="cancelStudentModal">Cancel</button><button class="btn-primary" id="saveStudentBtn"><i class="fas fa-save"></i> Save Pupil</button></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── ACADEMIC REPORTS ─── -->
+    <section class="section" id="sec-reports">
+      <div class="section-header">
+        <div><h1 class="section-title">Academic Reports</h1><p class="section-sub">GES-Standard Pupil Report Cards with Class Score & Remarks</p></div>
+      </div>
+      <div class="dash-grid">
+        <div class="card">
+          <div class="card-head"><h2 class="card-title"><i class="fas fa-pen-to-square"></i> Create Report Card</h2></div>
+          <div class="form-group">
+              <label>Select Enrolled Pupil (optional)</label>
+              <select class="form-input" id="rStudentSelect" onchange="autoFillReportFromPupil(this.value)">
+                <option value="">-- Pick from enrolled pupils --</option>
+              </select>
+            </div>
+          <div class="form-row">
+            <div class="form-group"><label>Pupil's Full Name</label><input type="text" class="form-input" id="rStudentName" placeholder="e.g. Kofi Mensah"/></div>
+            <div class="form-group"><label>Class</label>
+              <select class="form-input" id="rClass">
+                <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+                <option>KG1</option><option>KG2</option>
+                <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+                <option>BS.4</option><option>BS.5</option>
+                <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Term</label><select class="form-input" id="rTerm"><option>First Term</option><option>Second Term</option><option>Third Term</option></select></div>
+            <div class="form-group"><label>Academic Year</label><input type="text" class="form-input" id="rYear" placeholder="e.g. 2024/2025"/></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Class Size (for Position)</label><input type="number" class="form-input" id="rClassSize" placeholder="e.g. 35" min="1"/></div>
+            <div class="form-group"><label>Pupil's Position</label><input type="number" class="form-input" id="rPosition" placeholder="e.g. 5" min="1"/></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Days Present</label><input type="number" class="form-input" id="rDaysPresent" placeholder="e.g. 60"/></div>
+            <div class="form-group"><label>Total School Days</label><input type="number" class="form-input" id="rTotalDays" placeholder="e.g. 65"/></div>
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;margin:18px 0 10px;">
+            <p class="subject-section-title" style="margin:0;">Subject Scores</p>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <span id="subjectCount" style="font-size:12px;color:var(--text-muted);"></span>
+              <button type="button" class="btn-ghost" id="clearAllSubjectsBtn" style="font-size:11px;padding:4px 10px;"><i class="fas fa-eraser"></i> Clear All</button>
+            </div>
+          </div>
+          <!-- Subject Adder -->
+          <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;">
+            <select class="form-input" id="subjectPicker" style="flex:1;">
+              <option value="">── Select a Subject to Add ──</option>
+              <option>English Language</option>
+              <option>Mathematics</option>
+              <option>Science</option>
+              <option>R.M.E</option>
+              <option>History</option>
+              <option>Creative Arts</option>
+              <option>Ghanaian Language</option>
+              <option>Computing</option>
+              <option>Literacy</option>
+              <option>Social Studies</option>
+              <option>Career Technology</option>
+              <option>Numeracy</option>
+              <option>Creative Art</option>
+              <option>Natural Science</option>
+              <option>Objects And Colouring</option>
+              <option>Our World Our People</option>
+              <option>Writing Skills</option>
+              <option>Environment Science</option>
+            </select>
+            <button type="button" class="btn-primary" id="addSubjectBtn" style="white-space:nowrap;"><i class="fas fa-plus"></i> Add</button>
+          </div>
+          <!-- Dynamic subjects list -->
+          <div id="subjectsGrid"></div>
+          <p id="subjectsEmptyHint" style="font-size:12px;color:var(--text-muted);text-align:center;padding:14px 0;display:none;"><i class="fas fa-info-circle"></i> Use the dropdown above to add subjects one by one.</p>
+
+          <div class="form-group" style="margin-top:16px;">
+            <label>Class Teacher's Remark</label>
+            <textarea class="form-input" rows="2" id="rRemark" placeholder="e.g. Excellent performance. Keep it up!"></textarea>
+          </div>
+          <div class="form-group">
+            <label>Headmaster's Remark</label>
+            <textarea class="form-input" rows="2" id="rHMRemark" placeholder="e.g. Promoted to the next class."></textarea>
+          </div>
+          <div class="form-group">
+            <label>Interest / Extra-Curricular</label>
+            <input type="text" class="form-input" id="rInterest" placeholder="e.g. Football, Debate Club"/>
+          </div>
+          <div class="form-group">
+            <label>Conduct</label>
+            <select class="form-input" id="rConduct">
+              <option>Hardworking</option><option>Keep it up</option><option>Improved</option><option>Backup</option><option>Needs Help</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label><i class="fas fa-calendar-alt" style="color:var(--blue);"></i> Next Term Begins</label>
+            <input type="text" class="form-input" id="rNextTerm" placeholder="e.g. 13th January, 2025"/>
+          </div>
+          <input type="hidden" id="rEditIndex" value=""/>
+          <button class="btn-primary" style="margin-top:14px;width:100%;" id="generateReportCard">
+            <i class="fas fa-file-circle-check"></i> Generate GES Report Card
+          </button>
+        </div>
+
+        <div class="card" id="reportCardOutput" style="display:none;">
+          <div class="report-card" id="reportCardContent"></div>
+          <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
+            <button class="btn-ghost" style="flex:1;" onclick="window.print()"><i class="fas fa-print"></i> Print Report Card</button>
+            <button class="btn-ghost" id="cancelEditReportBtn" style="display:none;"><i class="fas fa-times"></i> Cancel Edit</button>
+          </div>
+        </div>
+
+        <div class="card full-width">
+          <div class="card-head"><h2 class="card-title"><i class="fas fa-folder-open"></i> Saved Report Cards</h2></div>
+          <div class="saved-reports" id="savedReportsList"><p class="empty-state"><i class="fas fa-file-circle-plus"></i> No reports yet.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── FEES ─── -->
+    <section class="section" id="sec-fees">
+      <div class="section-header">
+        <div><h1 class="section-title">School Fees</h1><p class="section-sub">Track payments in Ghana Cedis (GH₵)</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-ghost" onclick="downloadFeesCSV()"><i class="fas fa-download"></i> Download CSV</button>
+          <button class="btn-ghost" id="bulkFeeBtn"><i class="fas fa-layer-group"></i> Set Class Fee</button>
+          <button class="btn-ghost" id="generateBillBtn"><i class="fas fa-file-invoice"></i> Generate Bill</button>
+          <button class="btn-primary" id="recordFeeBtn"><i class="fas fa-plus"></i> Record Payment</button>
+        </div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card green"><div class="stat-icon"><i class="fas fa-check-circle"></i></div><div class="stat-body"><span class="stat-num" id="feePaidCount">0</span><span class="stat-label">Fully Paid</span></div></div>
+        <div class="stat-card red"><div class="stat-icon"><i class="fas fa-hourglass-half"></i></div><div class="stat-body"><span class="stat-num" id="feeUnpaidCount">0</span><span class="stat-label">Outstanding</span></div></div>
+        <div class="stat-card blue"><div class="stat-icon"><i class="fas fa-coins"></i></div><div class="stat-body"><span class="stat-num" id="totalCollectedFee">GH₵0</span><span class="stat-label">Total Collected</span></div></div>
+        <div class="stat-card teal"><div class="stat-icon"><i class="fas fa-receipt"></i></div><div class="stat-body"><span class="stat-num" id="totalPendingFee">GH₵0</span><span class="stat-label">Total Pending</span></div></div>
+      </div>
+      <div class="card">
+        <div class="table-toolbar">
+          <input type="text" class="table-search" placeholder="Search pupil name..." id="feeSearch"/>
+          <select class="table-filter" id="feeStatusFilter"><option value="">All Status</option><option>Paid</option><option>Partial</option><option>Unpaid</option></select>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table"><thead><tr><th>#</th><th>Pupil</th><th>Class</th><th>Amount Due</th><th>Amount Paid</th><th>Balance</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="feesTbody"></tbody></table>
+        </div>
+      </div>
+
+      <!-- Fee Bill Generator Modal -->
+      <div class="modal-overlay" id="feeBillModal">
+        <div class="modal" style="max-width:680px;">
+          <div class="modal-head"><h3><i class="fas fa-file-invoice"></i> Fee Bill Generator</h3><button class="modal-close" id="closeFeeBillModal"><i class="fas fa-times"></i></button></div>
+          <div class="modal-body">
+            <div class="form-row">
+              <div class="form-group" style="flex:1 1 100%;">
+                <label>Select Enrolled Pupil</label>
+                <select class="form-input" id="billStudentSelect" onchange="autoFillBillFromPupil(this.value)">
+                  <option value="">-- Select Pupil --</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Pupil Name</label>
+                <input type="text" class="form-input" id="billStudentName" placeholder="Or type manually"/>
+              </div>
+              <div class="form-group"><label>Class</label>
+                <input type="text" class="form-input" id="billClass" placeholder="Auto-filled from pupil"/>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Term</label><select class="form-input" id="billTerm"><option>First Term</option><option>Second Term</option><option>Third Term</option></select></div>
+              <div class="form-group"><label>Academic Year</label><input type="text" class="form-input" id="billYear" placeholder="e.g. 2024/2025"/></div>
+            </div>
+            <p style="font-weight:700;font-size:13px;margin:14px 0 8px;color:var(--text);">Fee Items</p>
+            <div id="billItemsContainer">
+              <div class="bill-item-row">
+                <input type="text" class="form-input bill-desc" placeholder="Description (e.g. Tuition Fee)"/>
+                <input type="number" class="form-input bill-amt" placeholder="Amount (GH₵)" min="0"/>
+                <button class="tbl-btn danger remove-bill-item"><i class="fas fa-minus"></i></button>
+              </div>
+            </div>
+            <button class="btn-ghost" id="addBillItemBtn" style="margin-top:8px;"><i class="fas fa-plus"></i> Add Item</button>
+            <div style="margin-top:14px;padding:12px;background:var(--blue-light);border-radius:var(--radius-sm);display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-weight:700;color:var(--blue);">Total Amount Due</span>
+              <span style="font-size:20px;font-weight:800;color:var(--blue);" id="billTotalDisplay">GH₵ 0.00</span>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn-ghost" id="cancelFeeBillModal">Cancel</button>
+            <button class="btn-primary" id="printBillBtn"><i class="fas fa-print"></i> Print Bill</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Record Fee Payment Modal -->
+      <div class="modal-overlay" id="feeModal">
+        <div class="modal">
+          <div class="modal-head"><h3 id="feeModalTitle">Record Fee Payment</h3><button class="modal-close" id="closeFeeModal"><i class="fas fa-times"></i></button></div>
+          <div class="modal-body">
+            <input type="hidden" id="fEditId"/>
+            <div class="form-group">
+              <label>Select Enrolled Pupil <span style="color:var(--red)">*</span></label>
+              <select class="form-input" id="fStudentSelect" onchange="autoFillFeeFromPupil(this.value)">
+                <option value="">-- Search & Select Pupil --</option>
+              </select>
+            </div>
+            <div class="form-row" id="feeAutoFilledInfo" style="display:none;">
+              <div class="form-group">
+                <label>Pupil Name</label>
+                <input type="text" class="form-input" id="fStudentName" readonly style="background:var(--bg-light);color:var(--text-muted);cursor:not-allowed;"/>
+              </div>
+              <div class="form-group">
+                <label>Class</label>
+                <input type="text" class="form-input" id="fClass" readonly style="background:var(--bg-light);color:var(--text-muted);cursor:not-allowed;"/>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Total Fee Due (GH₵) <span style="color:var(--red)">*</span></label><input type="number" class="form-input" id="fDue" placeholder="e.g. 300" min="0"/></div>
+              <div class="form-group"><label>Amount Paid (GH₵)</label><input type="number" class="form-input" id="fPaid" placeholder="e.g. 200" min="0"/></div>
+            </div>
+            <div class="form-group">
+              <label>Term</label>
+              <select class="form-input" id="fTerm">
+                <option>First Term</option><option>Second Term</option><option>Third Term</option>
+              </select>
+            </div>
+            <div id="feeExistingWarning" style="display:none;padding:10px 14px;background:#fff7e0;border:1px solid #f0c000;border-radius:var(--radius-sm);font-size:13px;color:#7a5900;margin-top:4px;">
+              <i class="fas fa-exclamation-triangle"></i> This pupil already has a fee record. You are editing the existing one.
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn-ghost" id="cancelFeeModal">Cancel</button>
+            <button class="btn-ghost" id="printReceiptBtn" style="display:none;"><i class="fas fa-receipt"></i> Print Receipt</button>
+            <button class="btn-primary" id="saveFeeBtn"><i class="fas fa-save"></i> Save</button>
+          </div>
+        </div>
+      </div>
+      <!-- Bulk Fee Setup Modal -->
+      <div class="modal-overlay" id="bulkFeeModal">
+        <div class="modal" style="max-width:440px;">
+          <div class="modal-head"><h3><i class="fas fa-layer-group"></i> Set Class Fee</h3><button class="modal-close" onclick="document.getElementById('bulkFeeModal').classList.remove('open')"><i class="fas fa-times"></i></button></div>
+          <div class="modal-body">
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">Set a single fee amount for all pupils in a class at once. Existing records will be updated; new pupils get a record created automatically.</p>
+            <div class="form-group"><label>Class <span style="color:var(--red)">*</span></label>
+              <select class="form-input" id="bulkFeeClass">
+                <option value="">-- Select Class --</option>
+                <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+                <option>KG1</option><option>KG2</option>
+                <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+                <option>BS.4</option><option>BS.5</option>
+                <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Term Fee Amount (GH₵) <span style="color:var(--red)">*</span></label><input type="number" class="form-input" id="bulkFeeDue" placeholder="e.g. 350" min="0"/></div>
+            <div class="form-group"><label>Term</label>
+              <select class="form-input" id="bulkFeeTerm">
+                <option>First Term</option><option>Second Term</option><option>Third Term</option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn-ghost" onclick="document.getElementById('bulkFeeModal').classList.remove('open')">Cancel</button>
+            <button class="btn-primary" onclick="applyBulkFee()"><i class="fas fa-check"></i> Apply to All Pupils</button>
+          </div>
+        </div>
+      </div>
+
+    </section>
+    <section class="section" id="sec-gallery">
+      <div class="section-header">
+        <div><h1 class="section-title">School Gallery</h1><p class="section-sub">Organise your school's memorable moments — upload, view, download & print photos.</p></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn-ghost" id="backToAlbumsBtn" style="display:none;"><i class="fas fa-arrow-left"></i> Back to Albums</button>
+          <button class="btn-primary" id="addAlbumBtn"><i class="fas fa-plus"></i> New Album</button>
+        </div>
+      </div>
+      <!-- Album list view -->
+      <div id="galleryAlbumsView">
+        <div class="gallery-albums" id="galleryAlbums"></div>
+      </div>
+      <!-- Album photos view -->
+      <div id="galleryPhotosView" style="display:none;">
+        <div class="section-header" style="margin-bottom:16px;">
+          <div>
+            <h2 id="currentAlbumTitle" style="font-size:18px;font-weight:700;"></h2>
+            <p id="currentAlbumDesc" style="font-size:13px;color:var(--text-muted);"></p>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <label class="btn-primary" for="photoUploadInput" style="cursor:pointer;"><i class="fas fa-upload"></i> Upload Photos</label>
+            <input type="file" id="photoUploadInput" accept="image/*" multiple style="display:none;"/>
+            <button class="btn-ghost" id="printAllPhotosBtn"><i class="fas fa-print"></i> Print All</button>
+          </div>
+        </div>
+        <div class="gallery-photos-grid" id="galleryPhotosGrid"></div>
+      </div>
+      <!-- Album Modal -->
+      <div class="modal-overlay" id="albumModal">
+        <div class="modal">
+          <div class="modal-head"><h3>Create Album</h3><button class="modal-close" id="closeAlbumModal"><i class="fas fa-times"></i></button></div>
+          <div class="modal-body">
+            <div class="form-group"><label>Album Name</label><input type="text" class="form-input" id="albumName" placeholder="e.g. Speech & Prize Giving 2025"/></div>
+            <div class="form-group"><label>Description</label><input type="text" class="form-input" id="albumDesc" placeholder="Brief description..."/></div>
+            <div class="form-group"><label>Album Icon / Emoji</label><input type="text" class="form-input" id="albumEmoji" placeholder="e.g. 🏆" maxlength="4"/></div>
+          </div>
+          <div class="modal-foot"><button class="btn-ghost" id="cancelAlbumModal">Cancel</button><button class="btn-primary" id="saveAlbumBtn"><i class="fas fa-save"></i> Create</button></div>
+        </div>
+      </div>
+      <!-- Photo Lightbox -->
+      <div class="modal-overlay" id="photoLightbox">
+        <div class="modal" style="max-width:700px;">
+          <div class="modal-head"><h3 id="lightboxTitle">Photo</h3><button class="modal-close" id="closeLightbox"><i class="fas fa-times"></i></button></div>
+          <div class="modal-body" style="text-align:center;padding:10px;">
+            <img id="lightboxImg" src="" alt="" style="max-width:100%;max-height:60vh;border-radius:8px;"/>
+          </div>
+          <div class="modal-foot">
+            <button class="btn-ghost" id="lightboxDownload"><i class="fas fa-download"></i> Download</button>
+            <button class="btn-ghost" id="lightboxPrint"><i class="fas fa-print"></i> Print</button>
+            <button class="btn-ghost danger" id="lightboxDelete"><i class="fas fa-trash"></i> Delete</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── WEEKLY WORK OUTPUT ─── -->
+    <section class="section" id="sec-weekly">
+      <div class="section-header">
+        <div><h1 class="section-title">Weekly Work Output</h1><p class="section-sub">Teachers record weekly exercises, homework given and attendance</p></div>
+        <button class="btn-primary" id="addWeeklyBtn"><i class="fas fa-plus"></i> Add Weekly Record</button>
+      </div>
+      <div class="dash-grid">
+        <div class="card full-width">
+          <div class="table-toolbar">
+            <input type="text" class="table-search" placeholder="Search by teacher or subject..." id="weeklySearch"/>
+            <select class="table-filter" id="weeklyClassFilter">
+              <option value="">All Classes</option>
+              <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+              <option>KG1</option><option>KG2</option>
+              <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+              <option>BS.4</option><option>BS.5</option>
+              <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+            </select>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>#</th><th>Week</th><th>Teacher</th><th>Subject</th><th>Class</th><th>Exercises Given</th><th>Homework Given</th><th>Actions</th></tr></thead>
+              <tbody id="weeklyTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <!-- Weekly Modal -->
+      <div class="modal-overlay" id="weeklyModal">
+        <div class="modal">
+          <div class="modal-head"><h3 id="weeklyModalTitle">Add Weekly Record</h3><button class="modal-close" id="closeWeeklyModal"><i class="fas fa-times"></i></button></div>
+          <div class="modal-body">
+            <input type="hidden" id="wEditId"/>
+            <div class="form-row">
+              <div class="form-group"><label>Week (e.g. Week 3 / 14–18 Oct)</label><input type="text" class="form-input" id="wWeek" placeholder="e.g. Week 3 / 14–18 Oct 2024"/></div>
+              <div class="form-group"><label>Teacher Name</label><input type="text" class="form-input" id="wTeacher" placeholder="e.g. Mrs. Abena Asante"/></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Subject</label><input type="text" class="form-input" id="wSubject" placeholder="e.g. Mathematics"/></div>
+              <div class="form-group"><label>Class</label>
+                <select class="form-input" id="wClass">
+                  <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+                  <option>KG1</option><option>KG2</option>
+                  <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+                  <option>BS.4</option><option>BS.5</option>
+                  <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Number of Exercises Given</label><input type="number" class="form-input" id="wExercises" placeholder="e.g. 5" min="0"/></div>
+              <div class="form-group"><label>Homework Given</label><input type="text" class="form-input" id="wHomework" placeholder="e.g. Page 45 Ex. 3A"/></div>
+            </div>
+          </div>
+          <div class="modal-foot"><button class="btn-ghost" id="cancelWeeklyModal">Cancel</button><button class="btn-primary" id="saveWeeklyBtn"><i class="fas fa-save"></i> Save Record</button></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── TEACHERS ─── -->
+    <section class="section" id="sec-teachers">
+      <div class="section-header">
+        <div><h1 class="section-title">Teachers</h1><p class="section-sub">GES Teaching Staff — Add, Edit & Delete</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-ghost" onclick="downloadTeachersCSV()"><i class="fas fa-download"></i> Download CSV</button>
+          <button class="btn-primary" id="addTeacherBtn"><i class="fas fa-plus"></i> Add Teacher</button>
+        </div>
+      </div>
+      <div class="card" style="margin-bottom:24px;">
+        <div class="table-toolbar">
+          <input type="text" class="table-search" placeholder="Search teacher name..." id="teacherSearch"/>
+          <select class="table-filter" id="teacherClassFilter">
+            <option value="">All Classes</option>
+            <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+            <option>KG1</option><option>KG2</option>
+            <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+            <option>BS.4</option><option>BS.5</option>
+            <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table"><thead><tr><th>#</th><th>Name</th><th>Subject(s)</th><th>Class(es)</th><th>Qualification</th><th>Actions</th></tr></thead>
+          <tbody id="teacherTbody"></tbody></table>
+        </div>
+      </div>
+      <div class="teachers-grid" id="teachersGrid"></div>
+      <div class="modal-overlay" id="teacherModal">
+        <div class="modal">
+          <div class="modal-head"><h3 id="teacherModalTitle">Add Teacher</h3><button class="modal-close" id="closeTeacherModal"><i class="fas fa-times"></i></button></div>
+          <div class="modal-body">
+            <input type="hidden" id="tEditId"/>
+            <div class="form-row">
+              <div class="form-group"><label>First Name</label><input type="text" class="form-input" id="tFirst" placeholder="e.g. Abena"/></div>
+              <div class="form-group"><label>Last Name</label><input type="text" class="form-input" id="tLast" placeholder="e.g. Asante"/></div>
+            </div>
+            <div class="form-group"><label>Subject(s)</label><input type="text" class="form-input" id="tSubject" placeholder="e.g. Mathematics, Science"/></div>
+            <div class="form-group"><label>Class(es) Assigned</label><input type="text" class="form-input" id="tAssigned" placeholder="e.g. P4, P5"/></div>
+            <div class="form-group"><label>Qualification</label>
+              <select class="form-input" id="tQualification">
+                <option>B.Ed</option><option>Diploma in Education</option><option>PGDE</option><option>M.Ed</option><option>PhD</option><option>Certificate A</option><option>Other</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Phone</label><input type="text" class="form-input" id="tPhone" placeholder="e.g. 024XXXXXXX"/></div>
+          </div>
+          <div class="modal-foot"><button class="btn-ghost" id="cancelTeacherModal">Cancel</button><button class="btn-primary" id="saveTeacherBtn"><i class="fas fa-save"></i> Save Teacher</button></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── CLASSES ─── -->
+    <section class="section" id="sec-classes">
+      <div class="section-header">
+        <div><h1 class="section-title">Classes</h1><p class="section-sub">GES Class Structure — Manage & Assign</p></div>
+        <button class="btn-primary" id="addClassBtn"><i class="fas fa-plus"></i> Add Class</button>
+      </div>
+      <div class="card" style="margin-bottom:24px;">
+        <div class="table-wrap">
+          <table class="data-table"><thead><tr><th>#</th><th>Class Name</th><th>Class Teacher</th><th>No. of Pupils</th><th>Level</th><th>Actions</th></tr></thead>
+          <tbody id="classTbody"></tbody></table>
+        </div>
+      </div>
+      <div class="classes-grid" id="classesGrid"></div>
+      <div class="modal-overlay" id="classModal">
+        <div class="modal">
+          <div class="modal-head"><h3 id="classModalTitle">Add Class</h3><button class="modal-close" id="closeClassModal"><i class="fas fa-times"></i></button></div>
+          <div class="modal-body">
+            <input type="hidden" id="cEditId"/>
+            <div class="form-row">
+              <div class="form-group"><label>Class Name</label>
+              <select class="form-input" id="cName">
+                <option value="">-- Select Class --</option>
+                <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+                <option>KG1</option><option>KG2</option>
+                <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+                <option>BS.4</option><option>BS.5</option>
+                <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+              </select>
+            </div>
+              <div class="form-group"><label>Level</label>
+                <select class="form-input" id="cLevel">
+                  <option>Creche</option><option>Nursery</option><option>Kindergarten</option><option>Basic School</option><option>SHS</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group"><label>Class Teacher</label>
+              <select class="form-input" id="cTeacher">
+                <option value="">-- Select Teacher --</option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-foot"><button class="btn-ghost" id="cancelClassModal">Cancel</button><button class="btn-primary" id="saveClassBtn"><i class="fas fa-save"></i> Save Class</button></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── SETTINGS ─── -->
+    <section class="section" id="sec-settings">
+      <div class="section-header">
+        <div><h1 class="section-title">Settings</h1><p class="section-sub">Configure your school details and upload logo.</p></div>
+      </div>
+      <div class="settings-grid">
+        <div class="card">
+          <h2 class="card-title" style="margin-bottom:20px;"><i class="fas fa-school"></i> School Information</h2>
+          <div class="form-group"><label>School Name</label><input type="text" class="form-input" id="schoolName" placeholder="e.g. Accra Primary School"/></div>
+          <div class="form-row">
+            <div class="form-group"><label>Current Term</label><select class="form-input" id="currentTerm"><option>First Term</option><option>Second Term</option><option>Third Term</option></select></div>
+            <div class="form-group"><label>Academic Year</label><input type="text" class="form-input" id="sessionYear" placeholder="e.g. 2024/2025"/></div>
+          </div>
+          <div class="form-group"><label>School Address</label><input type="text" class="form-input" id="schoolAddress" placeholder="e.g. Ring Road, Accra"/></div>
+          <div class="form-group"><label>Headmaster's Name</label><input type="text" class="form-input" id="principalName" placeholder="e.g. Mr. Kwesi Appiah"/></div>
+          <div class="form-group"><label>GES Circuit / District</label><input type="text" class="form-input" id="gesDistrict" placeholder="e.g. Accra Metro Circuit A"/></div>
+          <div class="form-group"><label>School Motto</label><input type="text" class="form-input" id="schoolMotto" placeholder="e.g. Excellence in Education"/></div>
+          <button class="btn-primary" id="saveSettingsBtn" style="margin-top:12px;"><i class="fas fa-save"></i> Save Settings</button>
+          <div class="save-msg" id="settingsSaved" style="display:none;"><i class="fas fa-check-circle"></i> Settings saved!</div>
+        </div>
+
+        <div class="card">
+          <h2 class="card-title" style="margin-bottom:20px;"><i class="fas fa-palette"></i> Theme & Appearance</h2>
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">Choose a colour theme for the interface. Your preference is saved automatically.</p>
+          <div id="themeSwatchGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;"></div>
+          <div class="form-group">
+            <label>Sidebar Style</label>
+            <select class="form-input" id="sidebarStyleSelect" onchange="applySidebarStyle(this.value)">
+              <option value="dark">Dark Navy (Default)</option>
+              <option value="light">Light White</option>
+              <option value="gradient">Gradient Blue</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-top:12px;">
+            <label>Font Size</label>
+            <select class="form-input" id="fontSizeSelect" onchange="applyFontSize(this.value)">
+              <option value="14">Small (14px)</option>
+              <option value="15" selected>Default (15px)</option>
+              <option value="16">Large (16px)</option>
+              <option value="17">Extra Large (17px)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2 class="card-title" style="margin-bottom:20px;"><i class="fas fa-image"></i> School Logo</h2>
+          <div class="logo-upload-area" id="logoUploadArea">
+            <div class="logo-preview-wrap" id="logoPreviewWrap">
+              <img id="logoPreviewImg" src="" alt="Logo" style="display:none;"/>
+              <div class="logo-placeholder" id="logoPlaceholder"><i class="fas fa-image"></i><span>No logo uploaded</span></div>
+            </div>
+            <p class="logo-hint">Upload your school crest or logo. It will appear on the sidebar, topbar, and printed report cards.</p>
+            <label class="logo-upload-btn" for="logoFileInput"><i class="fas fa-upload"></i> Choose Logo Image</label>
+            <input type="file" id="logoFileInput" accept="image/*" style="display:none;"/>
+            <button class="btn-ghost" id="removeLogoBtn" style="margin-top:10px;width:100%;display:none;"><i class="fas fa-trash"></i> Remove Logo</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── BACKUP & DRIVE ─── -->
+    <section class="section" id="sec-backup">
+      <div class="section-header">
+        <div><h1 class="section-title">Backup & Google Drive</h1><p class="section-sub">Protect your school data — export or sync to Google Drive.</p></div>
+      </div>
+      <div class="dash-grid">
+        <!-- Export Backup -->
+        <div class="card">
+          <div class="card-head"><h2 class="card-title"><i class="fas fa-download"></i> Export Full Backup</h2><span class="card-badge">Complete</span></div>
+          <p class="card-desc" style="margin-bottom:14px;">Your backup file contains <strong>everything</strong> in the system — all the items listed below are included and can be fully restored.</p>
+
+          <!-- What's included checklist -->
+          <div class="backup-includes-grid">
+            <div class="bi-item"><i class="fas fa-check-circle"></i> School Name, Address, Motto, District</div>
+            <div class="bi-item"><i class="fas fa-check-circle"></i> Term, Academic Session</div>
+            <div class="bi-item"><i class="fas fa-check-circle"></i> School Logo (image)</div>
+            <div class="bi-item"><i class="fas fa-check-circle"></i> All Pupils & Photos</div>
+            <div class="bi-item"><i class="fas fa-check-circle"></i> All Teachers</div>
+            <div class="bi-item"><i class="fas fa-check-circle"></i> All Classes</div>
+            <div class="bi-item"><i class="fas fa-check-circle"></i> Fee Records & Payments</div>
+            <div class="bi-item"><i class="fas fa-check-circle"></i> GES Report Cards</div>
+            <div class="bi-item"><i class="fas fa-check-circle"></i> Attendance Register</div>
+            <div class="bi-item"><i class="fas fa-check-circle"></i> Weekly Work Output</div>
+            <div class="bi-item"><i class="fas fa-check-circle"></i> Gallery Albums & Photos</div>
+            <div class="bi-item"><i class="fas fa-check-circle"></i> User Accounts & Roles</div>
+            <div class="bi-item"><i class="fas fa-check-circle"></i> Google Drive Client ID</div>
+            <div class="bi-item"><i class="fas fa-check-circle"></i> Backup History Log</div>
+            <div class="bi-item"><i class="fas fa-check-circle"></i> Examinations & Timetable</div>
+            <div class="bi-item"><i class="fas fa-check-circle"></i> Transfers & Withdrawals</div>
+            <div class="bi-item"><i class="fas fa-check-circle"></i> Announcements & Notifications</div>
+            <div class="bi-item"><i class="fas fa-check-circle"></i> Resources Library</div>
+          </div>
+
+          <p style="font-size:12px;font-weight:700;color:var(--text-muted);margin:14px 0 6px;">📊 CURRENT DATA SNAPSHOT</p>
+          <div class="backup-info" id="backupInfo"></div>
+
+          <button class="btn-primary" id="exportBackupBtn" style="width:100%;margin-top:14px;justify-content:center;">
+            <i class="fas fa-file-export"></i> Download Full Backup (JSON)
+          </button>
+          <!-- Prominent restore zone -->
+          <div class="restore-zone" style="margin-top:16px;" onclick="document.getElementById('importFileInput').click()" id="restoreDropZone">
+            <i class="fas fa-cloud-upload-alt"></i>
+            <p>Click to Restore from Backup</p>
+            <small>Drag & drop a .json backup file here, or click to browse. Records are never lost — restore anytime.</small>
+          </div>
+          <button class="btn-ghost" id="importBackupBtn" style="width:100%;margin-top:10px;justify-content:center;display:none;">
+            <i class="fas fa-file-import"></i> Import / Restore Backup
+          </button>
+          <input type="file" id="importFileInput" accept=".json" style="display:none;"/>
+        </div>
+
+        <!-- Google Drive OAuth -->
+        <div class="card">
+          <div class="card-head"><h2 class="card-title"><i class="fab fa-google-drive"></i> Google Drive Sync</h2><span class="card-badge">Direct</span></div>
+          <p class="card-desc">Sign in with your Google account to save your backup directly to your Google Drive — no manual download needed.</p>
+
+          <div class="drive-status" id="driveStatus">
+            <div class="drive-not-connected" id="driveNotConnected">
+              <i class="fab fa-google-drive" style="font-size:48px;color:#4285f4;margin-bottom:12px;"></i>
+              <p>Not connected to Google Drive</p>
+              <button class="btn-google" id="googleSignInBtn">
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G" style="width:18px;height:18px;"/>
+                Sign in with Google
+              </button>
+              <p class="drive-note">You'll need to set up Google API credentials for production. See the <strong>Setup Guide</strong> below.</p>
+            </div>
+            <div class="drive-connected" id="driveConnected" style="display:none;">
+              <div class="drive-user-info" id="driveUserInfo"></div>
+              <button class="btn-primary" id="saveToDriveBtn" style="width:100%;justify-content:center;margin-top:14px;">
+                <i class="fab fa-google-drive"></i> Save Backup to Drive
+              </button>
+              <button class="btn-ghost" id="googleSignOutBtn" style="width:100%;justify-content:center;margin-top:10px;">
+                <i class="fas fa-sign-out-alt"></i> Sign Out
+              </button>
+              <div class="drive-log" id="driveLog"></div>
+            </div>
+          </div>
+
+          <div class="setup-guide" id="setupGuide">
+            <div class="guide-toggle" id="guideToggle"><i class="fas fa-book-open"></i> Google Drive Setup Guide <i class="fas fa-chevron-down"></i></div>
+            <div class="guide-content" id="guideContent" style="display:none;">
+              <ol class="guide-steps">
+                <li>Go to <a href="https://console.cloud.google.com" target="_blank">Google Cloud Console</a></li>
+                <li>Create a new project named <strong>EduManage</strong></li>
+                <li>Enable <strong>Google Drive API</strong> and <strong>Google Identity Services</strong></li>
+                <li>Create OAuth 2.0 credentials (Web Application type)</li>
+                <li>Add your Hostinger domain to Authorised JavaScript origins</li>
+                <li>Copy the <strong>Client ID</strong> and paste it in the field below</li>
+              </ol>
+              <div class="form-group" style="margin-top:12px;">
+                <label>Your Google OAuth Client ID</label>
+                <input type="text" class="form-input" id="googleClientId" placeholder="xxxxxxxxxx.apps.googleusercontent.com"/>
+              </div>
+              <button class="btn-primary" id="saveClientIdBtn" style="margin-top:8px;"><i class="fas fa-save"></i> Save & Connect</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Backup History -->
+        <div class="card full-width">
+          <div class="card-head"><h2 class="card-title"><i class="fas fa-history"></i> Backup History</h2></div>
+          <div id="backupHistory"><p class="empty-state"><i class="fas fa-cloud-arrow-up"></i> No backups yet. Create your first backup above.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── ATTENDANCE REGISTER ─── -->
+    <section class="section" id="sec-attendance">
+      <div class="section-header">
+        <div><h1 class="section-title">Attendance Register</h1><p class="section-sub">Mark and track daily class attendance by week and day</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-ghost" onclick="downloadAttendanceCSV()"><i class="fas fa-download"></i> Export CSV</button>
+        </div>
+      </div>
+      <div class="dash-grid">
+        <div class="card">
+          <div class="card-head"><h2 class="card-title"><i class="fas fa-clipboard-check"></i> Mark Attendance</h2></div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Class</label>
+              <select class="form-input" id="attClassSelect" onchange="updateAttClassSize()">
+                <option value="">Select Class</option>
+                <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+                <option>KG1</option><option>KG2</option>
+                <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+                <option>BS.4</option><option>BS.5</option>
+                <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Week</label>
+              <select class="form-input" id="attWeek">
+                <option value="">Select Week</option>
+                <option>Week 1</option><option>Week 2</option><option>Week 3</option>
+                <option>Week 4</option><option>Week 5</option><option>Week 6</option>
+                <option>Week 7</option><option>Week 8</option><option>Week 9</option>
+                <option>Week 10</option><option>Week 11</option><option>Week 12</option>
+                <option>Week 13</option><option>Week 14</option><option>Week 15</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Day</label>
+              <select class="form-input" id="attDay">
+                <option value="">Select Day</option>
+                <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
+                <option>Thursday</option><option>Friday</option>
+              </select>
+            </div>
+          </div>
+          <div id="attClassSizeBar" style="display:none;background:var(--blue-light);border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:13px;color:var(--blue);font-weight:600;">
+            <i class="fas fa-users"></i> <span id="attClassSizeLabel">0 pupils enrolled</span>
+          </div>
+          <button class="btn-primary" id="attLoadBtn" style="width:100%;"><i class="fas fa-list-check"></i> Load Attendance Sheet</button>
+          <div id="attendanceSheet" style="display:none;margin-top:18px;"></div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <h2 class="card-title"><i class="fas fa-chart-bar"></i> Attendance Summary</h2>
+            <div style="display:flex;gap:6px;">
+              <select class="form-input" id="attFilterClass" style="font-size:12px;padding:4px 8px;height:auto;" onchange="renderAttendance(this.value, document.getElementById('attFilterWeek').value, document.getElementById('attFilterDay').value)">
+                <option value="">All Classes</option>
+                <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+                <option>KG1</option><option>KG2</option>
+                <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+                <option>BS.4</option><option>BS.5</option>
+                <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+              </select>
+              <select class="form-input" id="attFilterWeek" style="font-size:12px;padding:4px 8px;height:auto;" onchange="renderAttendance(document.getElementById('attFilterClass').value, this.value, document.getElementById('attFilterDay').value)">
+                <option value="">All Weeks</option>
+                <option>Week 1</option><option>Week 2</option><option>Week 3</option><option>Week 4</option><option>Week 5</option>
+                <option>Week 6</option><option>Week 7</option><option>Week 8</option><option>Week 9</option><option>Week 10</option>
+                <option>Week 11</option><option>Week 12</option><option>Week 13</option><option>Week 14</option><option>Week 15</option>
+              </select>
+              <select class="form-input" id="attFilterDay" style="font-size:12px;padding:4px 8px;height:auto;" onchange="renderAttendance(document.getElementById('attFilterClass').value, document.getElementById('attFilterWeek').value, this.value)">
+                <option value="">All Days</option>
+                <option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option><option>Friday</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr>
+                <th>#</th><th>Class</th><th>Week</th><th>Day</th>
+                <th>Class Size</th><th style="color:#3b82f6">👦 M</th><th style="color:#ec4899">👧 F</th>
+                <th style="color:var(--green)">✅ Present</th><th style="color:var(--red)">❌ Absent</th><th style="color:var(--yellow)">⏰ Late</th>
+                <th>Rate</th><th>Actions</th>
+              </tr></thead>
+              <tbody id="attendanceTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── STUDENT PROMOTION ─── -->
+    <section class="section" id="sec-promotion">
+      <div class="section-header">
+        <div><h1 class="section-title">Student Promotion</h1><p class="section-sub">Automatically promote pupils to the next class</p></div>
+      </div>
+      <div class="dash-grid">
+        <div class="card">
+          <div class="card-head"><h2 class="card-title"><i class="fas fa-arrow-up"></i> Promote Class</h2></div>
+          <p class="card-desc" style="margin-bottom:16px;">Select a class to see all pupils and promote them automatically to the next class level.</p>
+          <div class="form-group">
+            <label>Select Class to Promote From</label>
+            <select class="form-input" id="promoteFromClass">
+              <option value="">-- Select Class --</option>
+              <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+              <option>KG1</option><option>KG2</option>
+              <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+              <option>BS.4</option><option>BS.5</option>
+              <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+            </select>
+          </div>
+          <div id="promotionPreview" style="margin-top:16px;"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2 class="card-title"><i class="fas fa-info-circle"></i> Promotion Guide</h2></div>
+          <div style="font-size:13px;line-height:1.8;color:var(--text-muted);">
+            <p style="margin-bottom:10px;">The promotion order follows GES class structure:</p>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;">
+              <span class="status-pill pill-partial">Creche</span><span>→</span>
+              <span class="status-pill pill-partial">Nursery 1</span><span>→</span>
+              <span class="status-pill pill-partial">Nursery 2</span><span>→</span>
+              <span class="status-pill pill-partial">KG1</span><span>→</span>
+              <span class="status-pill pill-partial">KG2</span><span>→</span>
+              <span class="status-pill pill-paid">BS.1</span><span>→</span>
+              <span class="status-pill pill-paid">BS.2</span><span>→</span>
+              <span class="status-pill pill-paid">BS.3</span><span>→</span>
+              <span class="status-pill pill-paid">BS.4</span><span>→</span>
+              <span class="status-pill pill-paid">BS.5</span><span>→</span>
+              <span class="status-pill pill-unpaid">BS.7</span><span>→</span>
+              <span class="status-pill pill-unpaid">BS.8</span><span>→</span>
+              <span class="status-pill pill-unpaid">BS.9</span>
+            </div>
+            <p style="margin-top:14px;color:var(--red);font-size:12px;"><i class="fas fa-exclamation-triangle"></i> Promotion updates all pupil records immediately. Please back up your data first.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── ID CARD GENERATOR ─── -->
+    <section class="section" id="sec-idcards">
+      <div class="section-header">
+        <div><h1 class="section-title">ID Card Generator</h1><p class="section-sub">Generate official ID cards for pupils and teachers</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-ghost" id="idPrintAllBtn"><i class="fas fa-print"></i> Print All Shown</button>
+        </div>
+      </div>
+      <div class="card" style="margin-bottom:16px;">
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+          <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;">
+            <button class="btn-tab active" id="idTabPupils" onclick="switchIDTab('pupils')"><i class="fas fa-user-graduate"></i> Pupils</button>
+            <button class="btn-tab" id="idTabTeachers" onclick="switchIDTab('teachers')"><i class="fas fa-chalkboard-teacher"></i> Teachers</button>
+          </div>
+          <select class="form-input" id="idClassFilter" style="max-width:180px;" onchange="renderIDCards()">
+            <option value="">All Classes</option>
+            <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+            <option>KG1</option><option>KG2</option>
+            <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+            <option>BS.4</option><option>BS.5</option>
+            <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+          </select>
+          <input type="text" class="form-input" id="idSearch" placeholder="Search name..." style="max-width:200px;" oninput="renderIDCards()"/>
+          <div style="display:flex;gap:8px;margin-left:auto;align-items:center;">
+            <label style="font-size:13px;color:var(--text-muted);">Card Colour:</label>
+            <select class="form-input" id="idCardColor" style="max-width:140px;" onchange="renderIDCards()">
+              <option value="blue">GES Blue</option>
+              <option value="green">Forest Green</option>
+              <option value="red">Crimson Red</option>
+              <option value="purple">Royal Purple</option>
+              <option value="dark">Dark Slate</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div id="idCardsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:18px;"></div>
+    </section>
+
+    <!-- ─── SMS FEE REMINDERS ─── -->
+    <section class="section" id="sec-sms">
+      <div class="section-header">
+        <div><h1 class="section-title">Parent SMS Fee Reminders</h1><p class="section-sub">Generate and send SMS reminders for outstanding fees</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-ghost" id="smsCopyAllBtn"><i class="fas fa-copy"></i> Copy All</button>
+          <button class="btn-primary" id="smsSendBulkBtn"><i class="fas fa-paper-plane"></i> Send Bulk SMS</button>
+          <button class="btn-ghost" id="refreshSMSBtn"><i class="fas fa-sync"></i> Refresh</button>
+        </div>
+      </div>
+      <!-- Bulk SMS composer -->
+      <div class="card" id="bulkSMSPanel" style="margin-bottom:16px;display:none;">
+        <div class="card-head"><h2 class="card-title"><i class="fas fa-paper-plane"></i> Bulk SMS Composer</h2>
+          <button class="btn-ghost" style="font-size:12px;" onclick="document.getElementById('bulkSMSPanel').style.display='none'"><i class="fas fa-times"></i> Close</button>
+        </div>
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">Select recipients below, customise the message template, then open your SMS app for each or copy all numbers at once.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:center;">
+          <label style="font-size:13px;font-weight:600;">Filter by status:</label>
+          <label style="font-size:13px;cursor:pointer;"><input type="checkbox" id="bulkSelUnpaid" checked onchange="refreshBulkSelection()"> Unpaid</label>
+          <label style="font-size:13px;cursor:pointer;"><input type="checkbox" id="bulkSelPartial" checked onchange="refreshBulkSelection()"> Partial</label>
+          <label style="font-size:13px;cursor:pointer;"><input type="checkbox" id="bulkSelAll" onchange="refreshBulkSelection()"> Include Paid (custom msg)</label>
+          <span id="bulkSelectedCount" style="margin-left:auto;font-size:13px;font-weight:700;color:var(--blue);"></span>
+        </div>
+        <div class="form-group">
+          <label>Message Template <span style="font-size:11px;color:var(--text-muted);">(use {name}, {class}, {balance}, {school})</span></label>
+          <textarea class="form-input" id="bulkSMSTemplate" rows="3" style="font-size:13px;">Dear Parent/Guardian, this is a reminder that {name} ({class}) has an outstanding school fee balance of GH₵{balance}. Please pay at the earliest. Thank you — {school}.</textarea>
+        </div>
+        <div class="form-group">
+          <label>All Selected Phone Numbers (comma-separated)</label>
+          <textarea class="form-input" id="bulkPhoneList" rows="2" readonly style="font-size:12px;color:var(--text-muted);background:var(--bg-light);"></textarea>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn-primary" onclick="copyBulkPhones()"><i class="fas fa-copy"></i> Copy All Numbers</button>
+          <button class="btn-ghost" onclick="previewBulkMessages()"><i class="fas fa-eye"></i> Preview Messages</button>
+          <button class="btn-ghost" onclick="downloadSMSReport()"><i class="fas fa-download"></i> Download SMS Report</button>
+        </div>
+        <div id="bulkPreviewArea" style="display:none;margin-top:16px;max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;background:var(--bg-light);"></div>
+      </div>
+      <div class="card">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:center;">
+          <label style="font-size:13px;font-weight:600;"><input type="checkbox" id="smsSelectAll" onchange="toggleSelectAllSMS(this.checked)" style="margin-right:6px;">Select All</label>
+          <select class="form-input" id="smsClassFilter" style="max-width:160px;" onchange="generateSMSReminders()">
+            <option value="">All Classes</option>
+            <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+            <option>KG1</option><option>KG2</option>
+            <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+            <option>BS.4</option><option>BS.5</option>
+            <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+          </select>
+          <select class="form-input" id="smsStatusFilter" style="max-width:140px;" onchange="generateSMSReminders()">
+            <option value="">Unpaid + Partial</option>
+            <option value="Unpaid">Unpaid Only</option>
+            <option value="Partial">Partial Only</option>
+          </select>
+          <span id="smsSelectedInfo" style="font-size:12px;color:var(--text-muted);margin-left:auto;"></span>
+        </div>
+        <p class="card-desc" style="margin-bottom:16px;"><i class="fas fa-info-circle" style="color:var(--blue);"></i> Select pupils using the checkboxes, then use <strong>Send Bulk SMS</strong> to compose and send messages, or send individually per row.</p>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th style="width:36px;"></th><th>#</th><th>Pupil</th><th>Class</th><th>Balance</th><th>Parent Phone</th><th>Actions</th></tr></thead>
+            <tbody id="smsTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── EXPENDITURE ─── -->
+    <section class="section" id="sec-expenditure">
+      <div class="section-header">
+        <div><h1 class="section-title">Expenditure</h1><p class="section-sub">Track school expenses and generate expense invoices</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-ghost" id="generateExpInvoiceBtn"><i class="fas fa-file-invoice"></i> Generate Invoice</button>
+          <button class="btn-primary" id="addExpenseBtn"><i class="fas fa-plus"></i> Add Expense</button>
+        </div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card red"><div class="stat-icon"><i class="fas fa-money-bill-wave"></i></div><div class="stat-body"><span class="stat-num" id="expTotalSpent">GH₵0</span><span class="stat-label">Total Spent</span></div></div>
+        <div class="stat-card blue"><div class="stat-icon"><i class="fas fa-list-check"></i></div><div class="stat-body"><span class="stat-num" id="expTotalCount">0</span><span class="stat-label">Total Expenses</span></div></div>
+        <div class="stat-card teal"><div class="stat-icon"><i class="fas fa-calendar-month"></i></div><div class="stat-body"><span class="stat-num" id="expThisMonth">GH₵0</span><span class="stat-label">This Month</span></div></div>
+        <div class="stat-card green"><div class="stat-icon"><i class="fas fa-tag"></i></div><div class="stat-body"><span class="stat-num" id="expCategoryCount">0</span><span class="stat-label">Categories</span></div></div>
+      </div>
+      <div class="card">
+        <div class="table-toolbar">
+          <input type="text" class="table-search" placeholder="Search expenses..." id="expSearch"/>
+          <select class="table-filter" id="expCategoryFilter">
+            <option value="">All Categories</option>
+            <option>Stationery</option><option>Salaries</option><option>Utilities</option>
+            <option>Maintenance</option><option>Food & Supplies</option><option>Transport</option>
+            <option>Events</option><option>Equipment</option><option>Other</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>#</th><th>Description</th><th>Category</th><th>Amount (GH₵)</th><th>Date</th><th>Received By</th><th>Actions</th></tr></thead>
+            <tbody id="expTbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Add/Edit Expense Modal -->
+      <div class="modal-overlay" id="expenseModal">
+        <div class="modal">
+          <div class="modal-head"><h3 id="expenseModalTitle">Add Expense</h3><button class="modal-close" id="closeExpenseModal"><i class="fas fa-times"></i></button></div>
+          <div class="modal-body">
+            <input type="hidden" id="expEditId"/>
+            <div class="form-group"><label>Description <span style="color:var(--red)">*</span></label><input type="text" class="form-input" id="expDesc" placeholder="e.g. Exercise books purchase"/></div>
+            <div class="form-row">
+              <div class="form-group"><label>Category</label>
+                <select class="form-input" id="expCategory">
+                  <option>Stationery</option><option>Salaries</option><option>Utilities</option>
+                  <option>Maintenance</option><option>Food & Supplies</option><option>Transport</option>
+                  <option>Events</option><option>Equipment</option><option>Other</option>
+                </select>
+              </div>
+              <div class="form-group"><label>Amount (GH₵) <span style="color:var(--red)">*</span></label><input type="number" class="form-input" id="expAmount" placeholder="e.g. 500" min="0" step="0.01"/></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Date <span style="color:var(--red)">*</span></label><input type="date" class="form-input" id="expDate"/></div>
+              <div class="form-group"><label>Received / Paid By</label><input type="text" class="form-input" id="expReceiver" placeholder="e.g. Mr. Kwesi Appiah"/></div>
+            </div>
+            <div class="form-group"><label>Notes / Remarks</label><textarea class="form-input" rows="2" id="expNotes" placeholder="Any additional details..."></textarea></div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn-ghost" id="cancelExpenseModal">Cancel</button>
+            <button class="btn-ghost" id="printExpReceiptBtn" style="display:none;"><i class="fas fa-receipt"></i> Print Receipt</button>
+            <button class="btn-primary" id="saveExpenseBtn"><i class="fas fa-save"></i> Save Expense</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Generate Expense Invoice Modal -->
+      <div class="modal-overlay" id="expInvoiceModal">
+        <div class="modal" style="max-width:720px;">
+          <div class="modal-head"><h3><i class="fas fa-file-invoice"></i> Expense Invoice Generator</h3><button class="modal-close" id="closeExpInvoiceModal"><i class="fas fa-times"></i></button></div>
+          <div class="modal-body">
+            <div class="form-row">
+              <div class="form-group"><label>Invoice Title</label><input type="text" class="form-input" id="invTitle" placeholder="e.g. Monthly Expenses — October 2024"/></div>
+              <div class="form-group"><label>Invoice Number</label><input type="text" class="form-input" id="invNumber" placeholder="e.g. EXP-001"/></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>From Date</label><input type="date" class="form-input" id="invFromDate"/></div>
+              <div class="form-group"><label>To Date</label><input type="date" class="form-input" id="invToDate"/></div>
+            </div>
+            <div class="form-group"><label>Filter by Category (optional)</label>
+              <select class="form-input" id="invCategoryFilter">
+                <option value="">All Categories</option>
+                <option>Stationery</option><option>Salaries</option><option>Utilities</option>
+                <option>Maintenance</option><option>Food & Supplies</option><option>Transport</option>
+                <option>Events</option><option>Equipment</option><option>Other</option>
+              </select>
+            </div>
+            <button class="btn-ghost" style="width:100%;margin-bottom:12px;" id="previewInvoiceBtn"><i class="fas fa-eye"></i> Preview Invoice</button>
+            <div id="invoicePreviewArea" style="display:none;"></div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn-ghost" id="cancelExpInvoiceModal">Cancel</button>
+            <button class="btn-primary" id="printExpInvoiceBtn"><i class="fas fa-print"></i> Print Invoice</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── USER MANAGEMENT ─── -->
+    <section class="section" id="sec-users">
+      <div class="section-header">
+        <div><h1 class="section-title">User Management</h1><p class="section-sub">Admin & Teacher login accounts</p></div>
+        <button class="btn-primary" id="addUserBtn"><i class="fas fa-plus"></i> Add User</button>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>#</th><th>Name</th><th>Username</th><th>Password</th><th>Role</th><th>Permissions</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody id="usersTbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <!-- Add/Edit User Modal -->
+      <div class="modal-overlay" id="userModal">
+        <div class="modal">
+          <div class="modal-head"><h3 id="userModalTitle">Add User</h3><button class="modal-close" id="closeUserModal"><i class="fas fa-times"></i></button></div>
+          <div class="modal-body">
+            <input type="hidden" id="uEditId"/>
+            <div class="form-group"><label>Full Name</label><input type="text" class="form-input" id="uName" placeholder="e.g. Mr. Kwame Asante"/></div>
+            <div class="form-group"><label>Username</label><input type="text" class="form-input" id="uUsername" placeholder="e.g. teacher2" autocomplete="off"/></div>
+            <div class="form-group" id="uPasswordRow">
+              <label>Password</label>
+              <div class="password-input-wrap">
+                <input type="password" class="form-input" id="uPassword" placeholder="Set a password" autocomplete="new-password"/>
+                <button type="button" id="toggleUserPwd" class="pwd-toggle-btn"><i class="fas fa-eye"></i></button>
+              </div>
+            </div>
+            <div class="form-group"><label>Role</label>
+              <select class="form-input" id="uRole" onchange="toggleLinkedStudentField()">
+                <option value="Admin">Admin</option>
+                <option value="Teacher">Teacher</option>
+                <option value="Student">Student / Parent</option>
+              </select>
+            </div>
+            <div class="form-group" id="linkedStudentRow" style="display:none;">
+              <label>Linked Pupil <span style="color:var(--red)">*</span></label>
+              <select class="form-input" id="uLinkedStudent">
+                <option value="">-- Select Pupil --</option>
+              </select>
+              <p style="font-size:11px;color:var(--text-muted);margin-top:4px;"><i class="fas fa-info-circle"></i> This pupil's bills, reports and gallery will be visible to this account.</p>
+            </div>
+            <div class="form-group">
+              <label>Permissions</label>
+              <div id="uPermissionsGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px;"></div>
+            </div>
+          </div>
+          <div class="modal-foot"><button class="btn-ghost" id="cancelUserModal">Cancel</button><button class="btn-primary" id="saveUserBtn"><i class="fas fa-save"></i> Save User</button></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── RESOURCES LIBRARY ─── -->
+    <section class="section" id="sec-resources">
+      <div class="section-header">
+        <div><h1 class="section-title">Resources Library</h1><p class="section-sub">Store and manage examination papers, textbooks and study materials</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-ghost" onclick="downloadResourcesCSV()"><i class="fas fa-download"></i> Export List</button>
+          <button class="btn-primary" id="addResourceBtn"><i class="fas fa-plus"></i> Add Resource</button>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:16px;">
+        <div class="stat-card blue"><div class="stat-icon"><i class="fas fa-file-alt"></i></div><div class="stat-body"><span class="stat-num" id="resTotalCount">0</span><span class="stat-label">Total Resources</span></div></div>
+        <div class="stat-card teal"><div class="stat-icon"><i class="fas fa-scroll"></i></div><div class="stat-body"><span class="stat-num" id="resExamCount">0</span><span class="stat-label">Exam Papers</span></div></div>
+        <div class="stat-card green"><div class="stat-icon"><i class="fas fa-book"></i></div><div class="stat-body"><span class="stat-num" id="resBookCount">0</span><span class="stat-label">Books / Textbooks</span></div></div>
+        <div class="stat-card purple" style="--purple:#7c3aed;--purple-light:#ede9fe;"><div class="stat-icon" style="background:var(--purple-light);color:var(--purple);"><i class="fas fa-shapes"></i></div><div class="stat-body"><span class="stat-num" id="resOtherCount">0</span><span class="stat-label">Other Materials</span></div></div>
+      </div>
+
+      <div class="card">
+        <div class="table-toolbar">
+          <input type="text" class="table-search" placeholder="Search by title, subject, class..." id="resSearch"/>
+          <select class="table-filter" id="resTypeFilter" onchange="renderResources()">
+            <option value="">All Types</option>
+            <option value="Exam Paper">Exam Papers</option>
+            <option value="Textbook">Textbooks</option>
+            <option value="Workbook">Workbooks</option>
+            <option value="Past Question">Past Questions</option>
+            <option value="Notes">Notes / Handouts</option>
+            <option value="Other">Other</option>
+          </select>
+          <select class="table-filter" id="resClassFilter" onchange="renderResources()">
+            <option value="">All Classes</option>
+            <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+            <option>KG1</option><option>KG2</option>
+            <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+            <option>BS.4</option><option>BS.5</option>
+            <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+            <option value="All Classes">All Classes</option>
+          </select>
+          <select class="table-filter" id="resTermFilter" onchange="renderResources()">
+            <option value="">All Terms</option>
+            <option>First Term</option><option>Second Term</option><option>Third Term</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>#</th><th>Title</th><th>Type</th><th>Subject</th><th>Class</th>
+              <th>Term / Year</th><th>Copies</th><th>Condition</th><th>Added By</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="resTbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Resource Gallery View -->
+      <div class="card" style="margin-top:20px;">
+        <div class="card-head"><h2 class="card-title"><i class="fas fa-grip"></i> Resource Cards</h2></div>
+        <div id="resourcesGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;margin-top:12px;"></div>
+      </div>
+
+      <!-- Add/Edit Resource Modal -->
+      <div class="modal-overlay" id="resourceModal">
+        <div class="modal" style="max-width:640px;">
+          <div class="modal-head">
+            <h3 id="resourceModalTitle"><i class="fas fa-book-open"></i> Add Resource</h3>
+            <button class="modal-close" id="closeResourceModal"><i class="fas fa-times"></i></button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="resEditId"/>
+            <div class="form-row">
+              <div class="form-group" style="flex:2;"><label>Title / Name <span style="color:var(--red)">*</span></label><input type="text" class="form-input" id="resTitle" placeholder="e.g. BS.4 Mathematics Exam Paper"/></div>
+              <div class="form-group"><label>Type <span style="color:var(--red)">*</span></label>
+                <select class="form-input" id="resType">
+                  <option value="">-- Select --</option>
+                  <option>Exam Paper</option><option>Textbook</option><option>Workbook</option>
+                  <option>Past Question</option><option>Notes</option><option>Other</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Subject</label><input type="text" class="form-input" id="resSubject" placeholder="e.g. Mathematics"/></div>
+              <div class="form-group"><label>Class</label>
+                <select class="form-input" id="resClass">
+                  <option value="All Classes">All Classes</option>
+                  <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+                  <option>KG1</option><option>KG2</option>
+                  <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+                  <option>BS.4</option><option>BS.5</option>
+                  <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Term</label>
+                <select class="form-input" id="resTerm">
+                  <option value="">N/A</option>
+                  <option>First Term</option><option>Second Term</option><option>Third Term</option>
+                </select>
+              </div>
+              <div class="form-group"><label>Academic Year</label><input type="text" class="form-input" id="resYear" placeholder="e.g. 2024/2025"/></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Author / Publisher</label><input type="text" class="form-input" id="resAuthor" placeholder="e.g. GES Publications"/></div>
+              <div class="form-group"><label>Added By</label><input type="text" class="form-input" id="resAddedBy" placeholder="e.g. Mr. Kwesi Appiah"/></div>
+            </div>
+
+            <!-- ── CONTENT TAB SWITCHER ── -->
+            <div style="margin:12px 0 0;">
+              <label style="font-weight:600;font-size:13px;display:block;margin-bottom:8px;">Resource Content</label>
+              <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:12px;">
+                <button type="button" class="res-content-tab active" id="resTabFile"    onclick="switchResTab('file')"   style="flex:1;padding:8px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:var(--blue);color:#fff;transition:all .2s;"><i class="fas fa-upload"></i> Upload File</button>
+                <button type="button" class="res-content-tab"        id="resTabText"    onclick="switchResTab('text')"   style="flex:1;padding:8px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:var(--surface);color:var(--text);transition:all .2s;"><i class="fas fa-align-left"></i> Type / Paste Text</button>
+                <button type="button" class="res-content-tab"        id="resTabLink"    onclick="switchResTab('link')"   style="flex:1;padding:8px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:var(--surface);color:var(--text);transition:all .2s;"><i class="fas fa-link"></i> URL / Link</button>
+              </div>
+
+              <!-- File upload panel -->
+              <div id="resContentFile">
+                <div id="resDropZone" onclick="document.getElementById('resFileInput').click()" 
+                  style="border:2px dashed var(--border);border-radius:10px;padding:28px;text-align:center;cursor:pointer;transition:all .2s;background:var(--bg);"
+                  ondragover="event.preventDefault();this.style.borderColor='var(--blue)';this.style.background='var(--blue-light)'"
+                  ondragleave="this.style.borderColor='';this.style.background='var(--bg)'"
+                  ondrop="handleResFileDrop(event)">
+                  <i class="fas fa-cloud-upload-alt" style="font-size:32px;color:var(--text-light);display:block;margin-bottom:8px;"></i>
+                  <div style="font-weight:600;font-size:13px;color:var(--text-muted);">Click or drag & drop a file here</div>
+                  <div style="font-size:11px;color:var(--text-light);margin-top:4px;">PDF, Word (.docx), Images, PowerPoint — max 10MB</div>
+                </div>
+                <input type="file" id="resFileInput" accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.txt" style="display:none;"/>
+                <div id="resFilePreview" style="display:none;margin-top:10px;background:var(--blue-light);border-radius:8px;padding:10px 14px;display:none;align-items:center;gap:10px;">
+                  <i id="resFileIcon" class="fas fa-file-pdf" style="font-size:22px;color:var(--blue);"></i>
+                  <div style="flex:1;min-width:0;">
+                    <div id="resFileName" style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+                    <div id="resFileSize" style="font-size:11px;color:var(--text-muted);"></div>
+                  </div>
+                  <button type="button" onclick="clearResFile()" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:16px;padding:4px;"><i class="fas fa-times"></i></button>
+                </div>
+              </div>
+
+              <!-- Text/notes panel -->
+              <div id="resContentText" style="display:none;">
+                <textarea class="form-input" id="resTextContent" rows="6" placeholder="Type or paste notes, questions, content here...&#10;&#10;This text will be readable directly in the student portal." style="font-family:inherit;line-height:1.6;resize:vertical;"></textarea>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:4px;"><i class="fas fa-info-circle"></i> Students can read this text directly in the portal without downloading anything.</div>
+              </div>
+
+              <!-- Link/URL panel -->
+              <div id="resContentLink" style="display:none;">
+                <input type="url" class="form-input" id="resLink" placeholder="https://drive.google.com/... or any web URL"/>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:6px;"><i class="fas fa-info-circle"></i> Paste a Google Drive link, YouTube video, website, or any URL. Students will tap to open it.</div>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
+                  <span style="font-size:11px;background:var(--bg);border:1px solid var(--border);padding:3px 10px;border-radius:20px;color:var(--text-muted);"><i class="fab fa-google-drive" style="color:#4285F4;"></i> Google Drive</span>
+                  <span style="font-size:11px;background:var(--bg);border:1px solid var(--border);padding:3px 10px;border-radius:20px;color:var(--text-muted);"><i class="fab fa-youtube" style="color:#FF0000;"></i> YouTube</span>
+                  <span style="font-size:11px;background:var(--bg);border:1px solid var(--border);padding:3px 10px;border-radius:20px;color:var(--text-muted);"><i class="fas fa-globe" style="color:var(--blue);"></i> Any website</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-row" style="margin-top:10px;">
+              <div class="form-group"><label>Number of Copies / Quantity</label><input type="number" class="form-input" id="resCopies" placeholder="e.g. 40" min="1" value="1"/></div>
+              <div class="form-group"><label>Condition</label>
+                <select class="form-input" id="resCondition">
+                  <option>New</option><option>Good</option><option>Fair</option><option>Poor</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group"><label>Location / Room</label><input type="text" class="form-input" id="resLocation" placeholder="e.g. Store Room, Shelf B"/></div>
+            <div class="form-group"><label>Notes / Description</label><textarea class="form-input" rows="2" id="resNotes" placeholder="Any additional details about this resource..."></textarea></div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn-ghost" id="cancelResourceModal">Cancel</button>
+            <button class="btn-primary" id="saveResourceBtn"><i class="fas fa-save"></i> Save Resource</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── EXAMINATIONS ─── -->
+    <section class="section" id="sec-exams">
+      <div class="section-header">
+        <div><h1 class="section-title">Examinations</h1><p class="section-sub">Create and manage Midterm & End-of-Term exams</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-ghost" onclick="downloadExamsCSV()"><i class="fas fa-download"></i> Export</button>
+          <button class="btn-primary" id="addExamBtn"><i class="fas fa-plus"></i> Create Exam</button>
+        </div>
+      </div>
+      <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:16px;">
+        <div class="stat-card blue"><div class="stat-icon"><i class="fas fa-file-pen"></i></div><div class="stat-body"><span class="stat-num" id="examTotalCount">0</span><span class="stat-label">Total Exams</span></div></div>
+        <div class="stat-card teal"><div class="stat-icon"><i class="fas fa-hourglass-half"></i></div><div class="stat-body"><span class="stat-num" id="examUpcomingCount">0</span><span class="stat-label">Upcoming</span></div></div>
+        <div class="stat-card green"><div class="stat-icon"><i class="fas fa-check-circle"></i></div><div class="stat-body"><span class="stat-num" id="examDoneCount">0</span><span class="stat-label">Completed</span></div></div>
+        <div class="stat-card purple" style="--purple:#7c3aed;--purple-light:#ede9fe;"><div class="stat-icon" style="background:#ede9fe;color:#7c3aed;"><i class="fas fa-pen-ruler"></i></div><div class="stat-body"><span class="stat-num" id="examMidtermCount">0</span><span class="stat-label">Midterms</span></div></div>
+      </div>
+      <div class="card">
+        <div class="table-toolbar">
+          <input type="text" class="table-search" id="examSearch" placeholder="Search by title, class, subject..."/>
+          <select class="table-filter" id="examTypeFilter" onchange="renderExams()">
+            <option value="">All Types</option>
+            <option value="Midterm">Midterm</option>
+            <option value="End of Term">End of Term</option>
+            <option value="Mock">Mock / Practice</option>
+            <option value="Quiz">Quiz</option>
+            <option value="Other">Other</option>
+          </select>
+          <select class="table-filter" id="examStatusFilter" onchange="renderExams()">
+            <option value="">All Status</option>
+            <option value="Scheduled">Scheduled</option>
+            <option value="Ongoing">Ongoing</option>
+            <option value="Completed">Completed</option>
+            <option value="Cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>#</th><th>Exam Title</th><th>Type</th><th>Class</th><th>Subject</th><th>Date</th><th>Time</th><th>Duration</th><th>Venue</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody id="examTbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <!-- Exam Timetable view -->
+      <div class="card" style="margin-top:20px;">
+        <div class="card-head"><h2 class="card-title"><i class="fas fa-calendar-alt"></i> Exam Timetable</h2>
+          <button class="btn-ghost" onclick="window.print()" style="font-size:12px;"><i class="fas fa-print"></i> Print Timetable</button>
+        </div>
+        <div id="examTimetableGrid" style="margin-top:12px;"></div>
+      </div>
+      <!-- Add/Edit Exam Modal -->
+      <div class="modal-overlay" id="examModal">
+        <div class="modal" style="max-width:620px;">
+          <div class="modal-head">
+            <h3 id="examModalTitle"><i class="fas fa-file-pen"></i> Create Exam</h3>
+            <button class="modal-close" id="closeExamModal"><i class="fas fa-times"></i></button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="examEditId"/>
+            <div class="form-row">
+              <div class="form-group" style="flex:2;"><label>Exam Title <span style="color:var(--red)">*</span></label><input type="text" class="form-input" id="examTitle" placeholder="e.g. BS.4 End of First Term Examination"/></div>
+              <div class="form-group"><label>Type <span style="color:var(--red)">*</span></label>
+                <select class="form-input" id="examType">
+                  <option value="">-- Select --</option>
+                  <option>Midterm</option><option>End of Term</option><option>Mock</option><option>Quiz</option><option>Other</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Class <span style="color:var(--red)">*</span></label>
+                <select class="form-input" id="examClass">
+                  <option value="All Classes">All Classes</option>
+                  <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+                  <option>KG1</option><option>KG2</option>
+                  <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+                  <option>BS.4</option><option>BS.5</option>
+                  <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+                </select>
+              </div>
+              <div class="form-group"><label>Subject</label><input type="text" class="form-input" id="examSubject" placeholder="e.g. Mathematics (or leave blank for all subjects)"/></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Date <span style="color:var(--red)">*</span></label><input type="date" class="form-input" id="examDate"/></div>
+              <div class="form-group"><label>Start Time</label><input type="time" class="form-input" id="examTime"/></div>
+              <div class="form-group"><label>Duration (mins)</label><input type="number" class="form-input" id="examDuration" placeholder="e.g. 60" min="5"/></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Term</label>
+                <select class="form-input" id="examTerm">
+                  <option>First Term</option><option>Second Term</option><option>Third Term</option>
+                </select>
+              </div>
+              <div class="form-group"><label>Academic Year</label><input type="text" class="form-input" id="examYear" placeholder="e.g. 2024/2025"/></div>
+              <div class="form-group"><label>Venue / Room</label><input type="text" class="form-input" id="examVenue" placeholder="e.g. Main Hall, Room 4B"/></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Invigilator / Supervisor</label><input type="text" class="form-input" id="examInvigilator" placeholder="e.g. Mr. Kwesi Appiah"/></div>
+              <div class="form-group"><label>Total Marks</label><input type="number" class="form-input" id="examTotalMarks" placeholder="e.g. 100" min="1"/></div>
+              <div class="form-group"><label>Status</label>
+                <select class="form-input" id="examStatus">
+                  <option>Scheduled</option><option>Ongoing</option><option>Completed</option><option>Cancelled</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group"><label>Instructions / Notes</label><textarea class="form-input" rows="2" id="examNotes" placeholder="Any special instructions for this exam..."></textarea></div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn-ghost" id="cancelExamModal">Cancel</button>
+            <button class="btn-ghost" id="printExamSlipBtn"><i class="fas fa-print"></i> Print Slip</button>
+            <button class="btn-primary" id="saveExamBtn"><i class="fas fa-save"></i> Save Exam</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── TRANSFERS & WITHDRAWAL ─── -->
+    <section class="section" id="sec-transfers">
+      <div class="section-header">
+        <div><h1 class="section-title">Transfers &amp; Withdrawals</h1><p class="section-sub">Record and manage pupil transfers in/out and withdrawals</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-ghost" onclick="downloadTransfersCSV()"><i class="fas fa-download"></i> Export</button>
+          <button class="btn-primary" id="addTransferBtn"><i class="fas fa-plus"></i> Add Record</button>
+        </div>
+      </div>
+      <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:16px;">
+        <div class="stat-card blue"><div class="stat-icon"><i class="fas fa-exchange-alt"></i></div><div class="stat-body"><span class="stat-num" id="transferTotalCount">0</span><span class="stat-label">Total Records</span></div></div>
+        <div class="stat-card green"><div class="stat-icon"><i class="fas fa-sign-in-alt"></i></div><div class="stat-body"><span class="stat-num" id="transferInCount">0</span><span class="stat-label">Transferred In</span></div></div>
+        <div class="stat-card red"><div class="stat-icon"><i class="fas fa-sign-out-alt"></i></div><div class="stat-body"><span class="stat-num" id="transferOutCount">0</span><span class="stat-label">Transferred Out</span></div></div>
+        <div class="stat-card teal"><div class="stat-icon"><i class="fas fa-user-minus"></i></div><div class="stat-body"><span class="stat-num" id="withdrawalCount">0</span><span class="stat-label">Withdrawals</span></div></div>
+      </div>
+      <div class="card">
+        <div class="table-toolbar">
+          <input type="text" class="table-search" id="transferSearch" placeholder="Search by pupil name or school..."/>
+          <select class="table-filter" id="transferTypeFilter" onchange="renderTransfers()">
+            <option value="">All Types</option>
+            <option value="Transfer In">Transfer In</option>
+            <option value="Transfer Out">Transfer Out</option>
+            <option value="Withdrawal">Withdrawal</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>#</th><th>Pupil Name</th><th>Class</th><th>Type</th><th>Date</th><th>From / To School</th><th>Reason</th><th>Authorised By</th><th>Certificate</th><th>Actions</th></tr></thead>
+            <tbody id="transferTbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <!-- Add/Edit Transfer Modal -->
+      <div class="modal-overlay" id="transferModal">
+        <div class="modal" style="max-width:620px;">
+          <div class="modal-head">
+            <h3 id="transferModalTitle"><i class="fas fa-exchange-alt"></i> Add Transfer Record</h3>
+            <button class="modal-close" id="closeTransferModal"><i class="fas fa-times"></i></button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="transferEditId"/>
+            <div class="form-group">
+              <label>Select Enrolled Pupil <span style="color:var(--red)">*</span></label>
+              <select class="form-input" id="transferStudentSelect" onchange="autoFillTransferPupil(this.value)">
+                <option value="">-- Select or search pupil --</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Pupil Name</label><input type="text" class="form-input" id="transferPupilName" placeholder="Auto-filled or type manually"/></div>
+              <div class="form-group"><label>Class</label><input type="text" class="form-input" id="transferPupilClass" placeholder="Auto-filled"/></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Record Type <span style="color:var(--red)">*</span></label>
+                <select class="form-input" id="transferType" onchange="updateTransferFromTo()">
+                  <option value="">-- Select --</option>
+                  <option>Transfer In</option>
+                  <option>Transfer Out</option>
+                  <option>Withdrawal</option>
+                </select>
+              </div>
+              <div class="form-group"><label>Date <span style="color:var(--red)">*</span></label><input type="date" class="form-input" id="transferDate"/></div>
+            </div>
+            <div class="form-group" id="transferFromToRow">
+              <label id="transferFromToLabel">From School / To School</label>
+              <input type="text" class="form-input" id="transferFromTo" placeholder="e.g. Accra Primary School"/>
+            </div>
+            <div class="form-group"><label>Reason / Remarks</label><textarea class="form-input" rows="2" id="transferReason" placeholder="Brief reason for transfer or withdrawal..."></textarea></div>
+            <div class="form-row">
+              <div class="form-group"><label>Authorised By</label><input type="text" class="form-input" id="transferAuth" placeholder="e.g. Headmaster Name"/></div>
+              <div class="form-group"><label>Certificate Issued?</label>
+                <select class="form-input" id="transferCert">
+                  <option value="No">No</option>
+                  <option value="Yes">Yes — Transfer Certificate</option>
+                  <option value="Yes — Leaving Cert">Yes — Leaving Certificate</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group"><label>Additional Notes</label><input type="text" class="form-input" id="transferNotes" placeholder="Any other relevant information..."/></div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn-ghost" id="cancelTransferModal">Cancel</button>
+            <button class="btn-ghost" id="printTransferCertBtn"><i class="fas fa-print"></i> Print Certificate</button>
+            <button class="btn-primary" id="saveTransferBtn"><i class="fas fa-save"></i> Save Record</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── COMMUNICATION ─── -->
+    <section class="section" id="sec-communication">
+      <div class="section-header">
+        <div><h1 class="section-title">Communication Centre</h1><p class="section-sub">Send announcements, SMS notifications and parent messages</p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-primary" id="newAnnouncementBtn"><i class="fas fa-plus"></i> New Announcement</button>
+        </div>
+      </div>
+
+      <!-- Tab bar -->
+      <div class="card" style="padding:0;margin-bottom:20px;overflow:hidden;">
+        <div style="display:flex;border-bottom:1px solid var(--border);">
+          <button class="comm-tab active" id="commTabAnnouncements" onclick="switchCommTab('announcements')"><i class="fas fa-bullhorn"></i> Announcements</button>
+          <button class="comm-tab" id="commTabSMS" onclick="switchCommTab('sms')"><i class="fas fa-sms"></i> SMS Reminders</button>
+          <button class="comm-tab" id="commTabParent" onclick="switchCommTab('parent')"><i class="fas fa-envelope"></i> Parent Notifications</button>
+        </div>
+      </div>
+
+      <!-- ANNOUNCEMENTS PANEL -->
+      <div id="commPanelAnnouncements">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+          <div class="card">
+            <div class="card-head"><h2 class="card-title"><i class="fas fa-pen"></i> Compose Announcement</h2></div>
+            <div class="form-group"><label>Title <span style="color:var(--red)">*</span></label><input type="text" class="form-input" id="annTitle" placeholder="e.g. School Reopening Notice"/></div>
+            <div class="form-group"><label>Audience</label>
+              <select class="form-input" id="annAudience">
+                <option value="All">All (Staff + Parents + Students)</option>
+                <option value="Staff">Staff Only</option>
+                <option value="Parents">Parents Only</option>
+                <option value="Students">Students Only</option>
+                <option value="Class">Specific Class</option>
+              </select>
+            </div>
+            <div class="form-group" id="annClassRow" style="display:none;"><label>Select Class</label>
+              <select class="form-input" id="annClass">
+                <option>All Classes</option>
+                <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+                <option>KG1</option><option>KG2</option>
+                <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+                <option>BS.4</option><option>BS.5</option>
+                <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Priority</label>
+              <select class="form-input" id="annPriority">
+                <option value="Normal">Normal</option>
+                <option value="Important">Important</option>
+                <option value="Urgent">Urgent</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Message <span style="color:var(--red)">*</span></label><textarea class="form-input" rows="5" id="annMessage" placeholder="Write your announcement here..."></textarea></div>
+            <input type="hidden" id="annEditId"/>
+            <button class="btn-primary" style="width:100%;justify-content:center;" id="saveAnnouncementBtn"><i class="fas fa-paper-plane"></i> Post Announcement</button>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2 class="card-title"><i class="fas fa-list"></i> Posted Announcements</h2></div>
+            <div id="announcementsList" style="display:flex;flex-direction:column;gap:12px;max-height:500px;overflow-y:auto;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SMS PANEL (existing SMS reminders migrated here) -->
+      <div id="commPanelSMS" style="display:none;">
+        <div class="card" style="margin-bottom:16px;">
+          <div class="card-head"><h2 class="card-title"><i class="fas fa-paper-plane"></i> Bulk SMS Composer</h2></div>
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">Compose and send SMS reminders for outstanding fees to selected parents.</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:center;">
+            <label style="font-size:13px;font-weight:600;">Filter:</label>
+            <label style="font-size:13px;cursor:pointer;"><input type="checkbox" id="bulkSelUnpaid2" checked onchange="refreshBulkSelection()"> Unpaid</label>
+            <label style="font-size:13px;cursor:pointer;"><input type="checkbox" id="bulkSelPartial2" checked onchange="refreshBulkSelection()"> Partial</label>
+            <label style="font-size:13px;cursor:pointer;"><input type="checkbox" id="bulkSelAll2" onchange="refreshBulkSelection()"> Include Paid</label>
+            <span id="bulkSelectedCount2" style="margin-left:auto;font-size:13px;font-weight:700;color:var(--blue);"></span>
+          </div>
+          <div class="form-group">
+            <label>Message Template <span style="font-size:11px;color:var(--text-muted);">(use {name}, {class}, {balance}, {school})</span></label>
+            <textarea class="form-input" id="bulkSMSTemplate2" rows="3">Dear Parent/Guardian, this is a reminder that {name} ({class}) has an outstanding school fee balance of GH₵{balance}. Please pay at the earliest. Thank you — {school}.</textarea>
+          </div>
+          <div class="form-group">
+            <label>Selected Phone Numbers</label>
+            <textarea class="form-input" id="bulkPhoneList2" rows="2" readonly style="font-size:12px;background:var(--bg-light);"></textarea>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="btn-primary" onclick="copyBulkPhones()"><i class="fas fa-copy"></i> Copy All Numbers</button>
+            <button class="btn-ghost" onclick="previewBulkMessages()"><i class="fas fa-eye"></i> Preview Messages</button>
+            <button class="btn-ghost" onclick="downloadSMSReport()"><i class="fas fa-download"></i> Download Report</button>
+          </div>
+        </div>
+        <!-- Individual SMS table (reuses the sec-sms table) -->
+        <div class="card">
+          <div class="table-toolbar">
+            <select class="form-input" id="smsClassFilter2" style="max-width:160px;" onchange="generateSMSReminders2()">
+              <option value="">All Classes</option>
+              <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+              <option>KG1</option><option>KG2</option>
+              <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+              <option>BS.4</option><option>BS.5</option>
+              <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+            </select>
+            <select class="form-input" id="smsStatusFilter2" style="max-width:140px;" onchange="generateSMSReminders2()">
+              <option value="">Unpaid + Partial</option>
+              <option value="Unpaid">Unpaid Only</option>
+              <option value="Partial">Partial Only</option>
+            </select>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>#</th><th>Pupil</th><th>Class</th><th>Balance</th><th>Parent Phone</th><th>Action</th></tr></thead>
+              <tbody id="smsTbody2"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- PARENT NOTIFICATIONS PANEL -->
+      <div id="commPanelParent" style="display:none;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+          <div class="card">
+            <div class="card-head"><h2 class="card-title"><i class="fas fa-envelope-open-text"></i> Send Parent Notification</h2></div>
+            <div class="form-group"><label>Select Pupil</label>
+              <select class="form-input" id="pnStudentSelect">
+                <option value="">-- All Parents --</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Notification Type</label>
+              <select class="form-input" id="pnType">
+                <option>General Notice</option>
+                <option>Fee Reminder</option>
+                <option>Attendance Alert</option>
+                <option>Exam Notice</option>
+                <option>Behaviour Report</option>
+                <option>Collection Notice</option>
+                <option>Other</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Subject</label><input type="text" class="form-input" id="pnSubject" placeholder="e.g. End of Term Collection"/></div>
+            <div class="form-group"><label>Message <span style="color:var(--red)">*</span></label><textarea class="form-input" rows="5" id="pnMessage" placeholder="Write message to parent/guardian..."></textarea></div>
+            <input type="hidden" id="pnEditId"/>
+            <button class="btn-primary" style="width:100%;justify-content:center;" id="savePNBtn"><i class="fas fa-paper-plane"></i> Send Notification</button>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2 class="card-title"><i class="fas fa-inbox"></i> Sent Notifications</h2></div>
+            <div id="parentNotificationsList" style="display:flex;flex-direction:column;gap:10px;max-height:500px;overflow-y:auto;"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+  </div><!-- end appWrapper -->
+
+  <!-- ─── STUDENT/PARENT PORTAL ─── -->
+  <div id="studentPortal" style="display:none;min-height:100vh;background:var(--bg);">
+    <div style="background:var(--blue);padding:16px 24px;display:flex;align-items:center;justify-content:space-between;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="width:38px;height:38px;background:rgba(255,255,255,.2);border-radius:10px;display:grid;place-items:center;font-size:18px;color:#fff;"><i class="fas fa-graduation-cap"></i></div>
+        <div>
+          <div style="color:#fff;font-weight:700;font-size:16px;" id="portalSchoolName">EduManage Pro</div>
+          <div style="color:rgba(255,255,255,.7);font-size:12px;">Student / Parent Portal</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span style="color:rgba(255,255,255,.85);font-size:13px;" id="portalUserName"></span>
+        <button onclick="doLogout()" style="background:rgba(255,255,255,.15);border:none;color:#fff;padding:7px 14px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;"><i class="fas fa-sign-out-alt"></i> Logout</button>
+      </div>
+    </div>
+    <!-- Portal tabs -->
+    <div style="background:#fff;border-bottom:1px solid var(--border);padding:0 24px;display:flex;gap:0;overflow-x:auto;">
+      <button class="portal-tab active" id="ptabFees" onclick="switchPortalTab('fees')"><i class="fas fa-receipt"></i> My Bill</button>
+      <button class="portal-tab" id="ptabResults" onclick="switchPortalTab('results')"><i class="fas fa-chart-bar"></i> Results</button>
+      <button class="portal-tab" id="ptabExams" onclick="switchPortalTab('exams')"><i class="fas fa-calendar-alt"></i> Exam Schedule</button>
+      <button class="portal-tab" id="ptabGallery" onclick="switchPortalTab('gallery')"><i class="fas fa-images"></i> Gallery</button>
+      <button class="portal-tab" id="ptabResources" onclick="switchPortalTab('resources')"><i class="fas fa-book-open"></i> Resources</button>
+      <button class="portal-tab" id="ptabNotices" onclick="switchPortalTab('notices')"><i class="fas fa-bullhorn"></i> Notices</button>
+    </div>
+    <div style="padding:24px;max-width:900px;margin:0 auto;">
+      <div id="portalPanelFees"></div>
+      <div id="portalPanelResults" style="display:none;"></div>
+      <div id="portalPanelExams" style="display:none;"></div>
+      <div id="portalPanelGallery" style="display:none;"></div>
+      <div id="portalPanelResources" style="display:none;"></div>
+      <div id="portalPanelNotices" style="display:none;"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp }                          from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getDatabase, ref, set, get, onValue, off, child, update }
+                                                      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey:            "AIzaSyDPJH-3D1cbHO6el13qWj36DBc9DT_j9sQ",
+      authDomain:        "edumanage-pro-138c3.firebaseapp.com",
+      databaseURL:       "https://edumanage-pro-138c3-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId:         "edumanage-pro-138c3",
+      storageBucket:     "edumanage-pro-138c3.firebasestorage.app",
+      messagingSenderId: "346727146216",
+      appId:             "1:346727146216:web:ddad38247338bf6bd71f5d"
+    };
+
+    const fbApp = initializeApp(firebaseConfig);
+    const db    = getDatabase(fbApp);
+
+    // ── Expose Firebase helpers to global scope for script.js ──
+    window._fb = {
+      db,
+      ref:    (path)              => ref(db, path),
+      set:    (path, val)         => set(ref(db, path), val),
+      get:    (path)              => get(ref(db, path)),
+      update: (path, val)         => update(ref(db, path), val),
+      onValue,
+      off,
+      child,
+    };
+    window._fbReady = true;
+    document.dispatchEvent(new Event('firebase-ready'));
+    console.log('[Firebase] SDK loaded ✅');
+  </script>
+  <script src="script.js"></script>
+</body>
+</html>
