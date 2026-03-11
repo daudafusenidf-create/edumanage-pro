@@ -3906,11 +3906,15 @@ function showSchoolSelector() {
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('schoolSelector').style.display = 'flex';
   stopRealtimeSync();
-  // Load registry from Firebase first (gets schools registered on other devices)
+  // Show local registry immediately (fast), then refresh from Firebase in background
+  renderSchoolList();
   if (window._fbReady && _isOnline) {
-    loadRegistryFromFirebase().then(() => renderSchoolList());
+    loadRegistryFromFirebase().then(() => renderSchoolList()).catch(() => {});
   } else {
-    renderSchoolList();
+    // Wait for Firebase to be ready (fires when SDK module loads)
+    document.addEventListener('firebase-ready', () => {
+      loadRegistryFromFirebase().then(() => renderSchoolList()).catch(() => {});
+    }, { once: true });
   }
 }
 
@@ -4039,24 +4043,20 @@ function attemptLogin() {
 
   const schoolKey = getSchoolKey(schoolId);
   const loginBtn  = document.getElementById('loginBtn');
+  const resetBtn  = () => { if (loginBtn) { loginBtn.disabled = false; loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login'; } };
 
-  // Show loading state
   if (loginBtn) { loginBtn.disabled = true; loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading…'; }
 
-  // Try Firebase first, fall back to localStorage
   const proceed = () => {
     const user = state.users.find(u => u.username===username && u.password===password && u.active);
     if (!user) {
       document.getElementById('loginError').style.display = 'block';
-      if (loginBtn) { loginBtn.disabled = false; loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login'; }
-      return;
+      resetBtn(); return;
     }
 
     _currentSchoolKey = schoolKey;
     state.currentUser = user;
     showApp();
-
-    // Start real-time listener so this device gets updates from others
     startRealtimeSync(schoolId);
     showSyncStatus(_isOnline ? 'online' : 'offline');
 
@@ -4082,23 +4082,28 @@ function attemptLogin() {
     sv('schoolName',s.schoolName); sv('sessionYear',s.session); sv('schoolAddress',s.address);
     sv('principalName',s.principal); sv('gesDistrict',s.district); sv('schoolMotto',s.motto);
     if (document.getElementById('currentTerm')) document.getElementById('currentTerm').value = s.term||'';
-
     applyRoleNav(user);
-    if (loginBtn) { loginBtn.disabled = false; loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login'; }
+    resetBtn();
     showToast(`👋 Welcome, ${user.name} — ${state.settings.schoolName}`);
   };
 
-  // Load local first for instant feel, then overlay with Firebase data
+  // Always load localStorage immediately (works offline, instant)
   loadSchoolData(schoolKey);
+
+  // If Firebase is ready and online, fetch latest data — but with a 5s timeout
+  // so a slow connection never leaves the user stuck on the spinner
   if (window._fbReady && _isOnline) {
-    loadSchoolDataFromFirebase(schoolId).then(() => proceed());
+    let done = false;
+    const timer = setTimeout(() => {
+      if (!done) { done = true; console.warn('[Login] Firebase timeout — using local data'); proceed(); }
+    }, 5000);
+
+    loadSchoolDataFromFirebase(schoolId)
+      .then(() => { if (!done) { done = true; clearTimeout(timer); proceed(); } })
+      .catch(() => { if (!done) { done = true; clearTimeout(timer); proceed(); } });
   } else {
-    const loaded = !!localStorage.getItem(schoolKey);
-    if (!loaded) {
-      showToast('⚠️ No data found. Check your internet connection.');
-      if (loginBtn) { loginBtn.disabled = false; loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login'; }
-      return;
-    }
+    // Offline or Firebase not loaded yet — use localStorage or proceed anyway
+    // (new device with no local data will show empty state but still log in)
     proceed();
   }
 }
