@@ -3934,6 +3934,60 @@ function showApp() {
 }
 
 // ── SCHOOL SELECTOR ──
+// ── MASTER PIN ──
+const DEFAULT_MASTER_PIN = 'EduManage2024';
+
+function getMasterPin() {
+  try { return localStorage.getItem('edumanage_master_pin') || DEFAULT_MASTER_PIN; } catch(e) { return DEFAULT_MASTER_PIN; }
+}
+
+function changeMasterPin() {
+  const newPin = document.getElementById('masterPinSetting')?.value.trim();
+  if (!newPin || newPin.length < 4) { showToast('⚠️ PIN must be at least 4 characters.'); return; }
+  localStorage.setItem('edumanage_master_pin', newPin);
+  // Also save to Firebase so all devices share the same PIN
+  if (window._fbReady && _isOnline) {
+    window._fb.set('masterPin', newPin).catch(()=>{});
+  }
+  document.getElementById('masterPinSetting').value = '';
+  showToast('🔐 Master PIN updated successfully!');
+}
+
+// Load master PIN from Firebase on startup
+async function syncMasterPin() {
+  if (!window._fbReady || !_isOnline) return;
+  try {
+    const snap = await window._fb.get('masterPin');
+    if (snap.exists()) localStorage.setItem('edumanage_master_pin', snap.val());
+  } catch(e) {}
+}
+
+let _pinCallback = null; // function to call after PIN verified
+
+function requireMasterPin(title, desc, onSuccess) {
+  _pinCallback = onSuccess;
+  document.getElementById('masterPinTitle').innerHTML = `<i class="fas fa-lock"></i> ${title}`;
+  document.getElementById('masterPinDesc').textContent = desc;
+  document.getElementById('masterPinInput').value = '';
+  document.getElementById('masterPinError').style.display = 'none';
+  document.getElementById('masterPinModal').classList.add('open');
+  setTimeout(() => document.getElementById('masterPinInput').focus(), 100);
+}
+
+function verifyMasterPin() {
+  const entered = document.getElementById('masterPinInput').value;
+  const correct = getMasterPin();
+  if (entered === correct) {
+    document.getElementById('masterPinModal').classList.remove('open');
+    document.getElementById('masterPinError').style.display = 'none';
+    if (_pinCallback) { _pinCallback(); _pinCallback = null; }
+  } else {
+    document.getElementById('masterPinError').style.display = 'block';
+    document.getElementById('masterPinInput').value = '';
+    document.getElementById('masterPinInput').focus();
+  }
+}
+
 function renderSchoolList() {
   const reg = getRegistry();
   const container = document.getElementById('schoolListContainer');
@@ -3953,7 +4007,7 @@ function renderSchoolList() {
         <strong>${escHtml(s.name)}</strong>
         <span>Created ${new Date(s.createdAt).toLocaleDateString('en-GH')}</span>
       </div>
-      <button class="school-card-delete" title="Remove school" onclick="event.stopPropagation();deleteSchool('${s.id}')">
+      <button class="school-card-delete" title="Delete school" onclick="event.stopPropagation();promptDeleteSchool('${s.id}')">
         <i class="fas fa-trash"></i>
       </button>
     </div>`).join('');
@@ -3967,19 +4021,114 @@ function selectSchool(schoolId, schoolName) {
   showLoginScreen(schoolId, schoolName);
 }
 
-function deleteSchool(schoolId) {
-  const reg = getRegistry();
+function promptDeleteSchool(schoolId) {
+  const reg    = getRegistry();
   const school = reg.find(s => s.id === schoolId);
   if (!school) return;
-  if (!confirm(`Permanently delete "${school.name}" and all its data? This cannot be undone.`)) return;
+  requireMasterPin(
+    'Delete School',
+    `Enter Master PIN to delete "${school.name}". Data will be archived and can be restored within 90 days.`,
+    () => deleteSchool(schoolId)
+  );
+}
+
+function deleteSchool(schoolId) {
+  const reg    = getRegistry();
+  const school = reg.find(s => s.id === schoolId);
+  if (!school) return;
+
+  // ── SOFT DELETE: archive data to Firebase before removing ──
+  if (window._fbReady && _isOnline) {
+    const schoolData = localStorage.getItem(getSchoolKey(schoolId));
+    const archivePayload = {
+      schoolId,
+      schoolName: school.name,
+      deletedAt:  new Date().toISOString(),
+      expiresAt:  new Date(Date.now() + 90*24*60*60*1000).toISOString(), // 90 days
+      data:       schoolData ? JSON.parse(schoolData) : {},
+    };
+    // Archive path: archives/<schoolId>
+    window._fb.set('archives/' + schoolId, archivePayload)
+      .then(() => {
+        // Now safe to remove live data
+        window._fb.set(fbSchoolPath(schoolId), null).catch(()=>{});
+        console.log('[FB] School archived ✅');
+      })
+      .catch(e => console.warn('[FB] Archive failed:', e));
+  }
+
+  // Remove from localStorage and registry
   localStorage.removeItem(getSchoolKey(schoolId));
   saveRegistry(reg.filter(s => s.id !== schoolId));
-  // Also delete from Firebase
-  if (window._fbReady && _isOnline) {
-    window._fb.set(fbSchoolPath(schoolId), null).catch(e => console.warn('[FB] delete failed:', e));
-  }
   renderSchoolList();
-  showToast('🗑️ School removed.');
+  showToast('🗑️ School deleted. Data archived for 90 days — can be restored.');
+}
+
+// ── RESTORE DELETED SCHOOL ──
+async function showRestoreModal() {
+  document.getElementById('restoreSchoolModal').classList.add('open');
+  const listEl = document.getElementById('archivedSchoolsList');
+  listEl.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading archives…</p>';
+
+  if (!window._fbReady || !_isOnline) {
+    listEl.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;"><i class="fas fa-wifi-slash"></i> No internet connection. Archives require Firebase.</p>';
+    return;
+  }
+  try {
+    const snap = await window._fb.get('archives');
+    if (!snap.exists()) { listEl.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;">No archived schools found.</p>'; return; }
+    const archives = snap.val();
+    const now = Date.now();
+    const valid = Object.values(archives).filter(a => new Date(a.expiresAt).getTime() > now);
+    if (!valid.length) { listEl.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;">No restorable schools found. Archives expire after 90 days.</p>'; return; }
+    listEl.innerHTML = valid.map(a => {
+      const daysLeft = Math.ceil((new Date(a.expiresAt).getTime() - now) / (1000*60*60*24));
+      const delDate  = new Date(a.deletedAt).toLocaleDateString('en-GH');
+      return `<div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;display:flex;align-items:center;gap:12px;">
+        <div style="font-size:28px;">🏫</div>
+        <div style="flex:1;">
+          <div style="font-weight:700;font-size:14px;">${escHtml(a.schoolName)}</div>
+          <div style="font-size:12px;color:var(--text-muted);">Deleted ${delDate} &nbsp;·&nbsp; <span style="color:var(--yellow);font-weight:600;">${daysLeft} day${daysLeft!==1?'s':''} left to restore</span></div>
+        </div>
+        <button class="btn-primary" style="font-size:12px;padding:6px 14px;" onclick="restoreSchool('${a.schoolId}')">
+          <i class="fas fa-trash-restore"></i> Restore
+        </button>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    listEl.innerHTML = '<p style="text-align:center;color:var(--red);padding:20px;"><i class="fas fa-exclamation-circle"></i> Failed to load archives. Check your connection.</p>';
+  }
+}
+
+async function restoreSchool(schoolId) {
+  if (!window._fbReady || !_isOnline) { showToast('⚠️ Internet required to restore.'); return; }
+  try {
+    const snap = await window._fb.get('archives/' + schoolId);
+    if (!snap.exists()) { showToast('⚠️ Archive not found or expired.'); return; }
+    const archive = snap.val();
+
+    // Restore data to Firebase live path and localStorage
+    const schoolKey = getSchoolKey(schoolId);
+    const restoredData = { ...archive.data, savedAt: Date.now() };
+    await window._fb.set(fbSchoolPath(schoolId), restoredData);
+    localStorage.setItem(schoolKey, JSON.stringify(restoredData));
+
+    // Re-add to registry
+    const reg = getRegistry();
+    if (!reg.find(s => s.id === schoolId)) {
+      reg.push({ id: schoolId, key: schoolKey, name: archive.schoolName, createdAt: archive.data?.settings?.createdAt || new Date().toISOString() });
+      saveRegistry(reg);
+    }
+
+    // Remove from archives
+    await window._fb.set('archives/' + schoolId, null);
+
+    document.getElementById('restoreSchoolModal').classList.remove('open');
+    renderSchoolList();
+    showToast(`✅ "${archive.schoolName}" restored successfully with all data!`);
+  } catch(e) {
+    showToast('❌ Restore failed. Try again.'); console.error(e);
+  }
 }
 
 function registerNewSchool() {
@@ -4273,13 +4422,33 @@ function initLogin() {
   document.getElementById('cancelChangePwdModal').addEventListener('click', ()=>document.getElementById('changePasswordModal').classList.remove('open'));
   document.getElementById('saveNewPasswordBtn').addEventListener('click', saveNewPassword);
 
-  // Register new school
-  document.getElementById('registerSchoolBtn').addEventListener('click', ()=>{
-    document.getElementById('registerSchoolModal').classList.add('open');
+  // Register new school — requires Master PIN
+  document.getElementById('registerSchoolBtn').addEventListener('click', () => {
+    requireMasterPin(
+      'Register New School',
+      'Enter the Master PIN to register a new school on this system.',
+      () => document.getElementById('registerSchoolModal').classList.add('open')
+    );
   });
   document.getElementById('closeRegisterModal').addEventListener('click', ()=>document.getElementById('registerSchoolModal').classList.remove('open'));
   document.getElementById('cancelRegisterModal').addEventListener('click', ()=>document.getElementById('registerSchoolModal').classList.remove('open'));
   document.getElementById('confirmRegisterBtn').addEventListener('click', registerNewSchool);
+
+  // Restore deleted school button
+  document.getElementById('restoreSchoolBtn').addEventListener('click', () => {
+    requireMasterPin(
+      'Restore Deleted School',
+      'Enter the Master PIN to view and restore archived schools.',
+      () => showRestoreModal()
+    );
+  });
+
+  // Master PIN confirm button + Enter key
+  document.getElementById('masterPinConfirmBtn').addEventListener('click', verifyMasterPin);
+  document.getElementById('masterPinInput').addEventListener('keydown', e => { if (e.key === 'Enter') verifyMasterPin(); });
+
+  // Sync master PIN from Firebase on load
+  syncMasterPin();
 
   // Toggle new school password visibility
   document.getElementById('toggleNewSchoolPwd').addEventListener('click', ()=>{
