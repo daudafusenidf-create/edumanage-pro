@@ -39,9 +39,10 @@ function getSchoolKey(schoolId) {
 
 // Runtime state
 let _isOnline      = navigator.onLine;
-let _fbListener    = null;
-let _fbSyncPaused  = false;
-let _fbDataLoaded  = false; // true only after we've confirmed our data is in sync with Firebase
+let _fbListener     = null;
+let _fbSyncPaused   = false;
+let _fbDataLoaded   = false; // true only after we've confirmed our data is in sync with Firebase
+let _fbKnownSavedAt = 0;    // savedAt timestamp last seen on Firebase — never push older data than this
 
 window.addEventListener('online',  () => { _isOnline = true;  showSyncStatus('online'); });
 window.addEventListener('offline', () => { _isOnline = false; showSyncStatus('offline'); });
@@ -73,11 +74,14 @@ function startRealtimeSync(schoolId) {
 
     // Always mark as loaded when we receive any Firebase data
     if (!_fbDataLoaded) _fbDataLoaded = true;
+    // Track highest savedAt seen from Firebase
+    if (fbSavedAt > _fbKnownSavedAt) _fbKnownSavedAt = fbSavedAt;
 
     if (_fbSyncPaused) return; // We just wrote this ourselves — skip echo
     if (fbSavedAt <= localSavedAt) return; // Local is already up to date
 
     // Firebase has newer data — apply it
+    _fbKnownSavedAt = fbSavedAt;
     _applyDataToState(data);
     localStorage.setItem(getSchoolKey(schoolId), JSON.stringify(data));
     refreshAllViews();
@@ -166,11 +170,13 @@ async function loadSchoolDataFromFirebase(schoolId) {
     // Firebase is newer or equal — use Firebase as source of truth
     localStorage.setItem(getSchoolKey(schoolId), JSON.stringify(fbData));
     loadSchoolData(getSchoolKey(schoolId));
+    _fbKnownSavedAt = fbSavedAt;
     _fbDataLoaded = true;
     return fbData;
   } else {
-    // Local is newer — keep local but still mark as loaded so autosave can push
+    // Local is newer — keep local, record FB's timestamp, push on next save
     loadSchoolData(getSchoolKey(schoolId));
+    _fbKnownSavedAt = fbSavedAt;
     _fbDataLoaded = true;
     return fbData;
   }
@@ -745,21 +751,24 @@ function saveToDB() {
     // 1. Always save locally first
     localStorage.setItem(_currentSchoolKey, JSON.stringify(data));
 
-    // 2. Push to Firebase — only if we've loaded from Firebase first this session
-    // This prevents VSCode file-open / page refresh from overwriting other devices
-    if (window._fbReady && _isOnline && _fbDataLoaded) {
+    // 2. Push to Firebase — strict safety checks to prevent overwriting other devices
+    //    - _fbDataLoaded: we must have synced from Firebase at least once this session
+    //    - savedAt > _fbKnownSavedAt: our data must be NEWER than what Firebase last had
+    //      (if equal or older, we have nothing new to push — don't overwrite)
+    if (window._fbReady && _isOnline && _fbDataLoaded && savedAt > _fbKnownSavedAt) {
       const schoolId = _currentSchoolKey.replace('edumanage_school_', '');
       showSyncStatus('saving');
       _fbSyncPaused = true; // Block our own onValue echo while we write
+      _fbKnownSavedAt = savedAt; // Update our known timestamp immediately
       window._fb.set(fbSchoolPath(schoolId), data)
         .then(() => {
           showSyncStatus('online');
-          // Keep paused briefly so our own onValue echo (from Firebase) is ignored
           setTimeout(() => { _fbSyncPaused = false; }, 2000);
         })
         .catch(e => {
           console.warn('[FB] Save to Firebase failed:', e);
           _fbSyncPaused = false;
+          _fbKnownSavedAt = savedAt - 1; // Roll back so next save retries
           showSyncStatus('offline');
           showToast('⚠️ Cloud save failed — data saved locally only.');
         });
@@ -4622,12 +4631,13 @@ function attemptLogin() {
       localStorage.removeItem('edumanage_remembered_' + schoolId);
     }
     showApp();
-    startRealtimeSync(schoolId);
     showSyncStatus(_isOnline ? 'online' : 'offline');
     document.querySelector('.user-name').textContent   = user.name;
     document.querySelector('.user-role').textContent   = user.role;
     document.querySelector('.user-avatar').textContent = user.name.charAt(0).toUpperCase();
     document.getElementById('sidebarSchoolName').textContent = state.settings.schoolName;
+    // Suppress autosave during initial render — state is being set up, not modified by user
+    _fbSyncPaused = true;
     renderStudents(); renderFees(); renderTeachers(); renderClasses();
     renderGallery(); renderSavedReports(); renderWeekly();
     renderAttendance(); renderUsers(); updateDashStats(); updateFeeStats();
@@ -4647,6 +4657,10 @@ function attemptLogin() {
     if (document.getElementById('currentTerm')) document.getElementById('currentTerm').value = s.term||'';
     applyRoleNav(user);
     resetBtn();
+    // Start realtime sync AFTER data is loaded and rendered — not before
+    startRealtimeSync(schoolId);
+    // Unpause after a short delay so render-triggered autosaves don't fire immediately
+    setTimeout(() => { _fbSyncPaused = false; }, 3000);
     showToast('Welcome back, ' + user.name + ' - ' + state.settings.schoolName);
   };
   loadSchoolData(schoolKey);
@@ -4799,6 +4813,7 @@ function doLogout() {
   _currentSchoolKey = null;
   _unsavedChanges   = false;
   _fbDataLoaded     = false;
+  _fbKnownSavedAt   = 0;
   const portal = document.getElementById('studentPortal');
   if (portal) portal.style.display = 'none';
   showSchoolSelector();
