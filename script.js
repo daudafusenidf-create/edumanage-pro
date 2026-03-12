@@ -704,8 +704,11 @@ async function renderDeleteRequests() {
 // Save current school data to its own key
 function saveToDB() {
   if (!_currentSchoolKey) return;
+  // Only push to Firebase if the user actually changed something this session.
+  // On page reload / VSCode file-open, _unsavedChanges is false → skip Firebase push.
+  const _hasChanges = _unsavedChanges;
   try {
-    const savedAt = Date.now();
+    const savedAt = _hasChanges ? Date.now() : (_fbKnownSavedAt || Date.now());
     const data = {
       students: state.students,
       fees: state.fees,
@@ -751,11 +754,11 @@ function saveToDB() {
     // 1. Always save locally first
     localStorage.setItem(_currentSchoolKey, JSON.stringify(data));
 
-    // 2. Push to Firebase — strict safety checks to prevent overwriting other devices
-    //    - _fbDataLoaded: we must have synced from Firebase at least once this session
-    //    - savedAt > _fbKnownSavedAt: our data must be NEWER than what Firebase last had
-    //      (if equal or older, we have nothing new to push — don't overwrite)
-    if (window._fbReady && _isOnline && _fbDataLoaded && savedAt > _fbKnownSavedAt) {
+    // 2. Push to Firebase — only if user made actual changes this session
+    //    _hasChanges: user changed something (autosave set _unsavedChanges = true)
+    //    _fbDataLoaded: we confirmed what's in Firebase before writing
+    //    savedAt > _fbKnownSavedAt: our timestamp is genuinely newer
+    if (window._fbReady && _isOnline && _hasChanges && _fbDataLoaded && savedAt > _fbKnownSavedAt) {
       const schoolId = _currentSchoolKey.replace('edumanage_school_', '');
       showSyncStatus('saving');
       _fbSyncPaused = true; // Block our own onValue echo while we write
@@ -908,14 +911,14 @@ function initPageLeaveProtection() {
 
   // Save immediately when tab becomes hidden (phone lock, tab switch)
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden' && _currentSchoolKey) {
+    if (document.visibilityState === 'hidden' && _currentSchoolKey && _unsavedChanges) {
       saveNow();
     }
   });
 
-  // Save on window focus loss
+  // Save on window focus loss — only if there are actual unsaved changes
   window.addEventListener('blur', () => {
-    if (_currentSchoolKey) saveNow();
+    if (_currentSchoolKey && _unsavedChanges) saveNow();
   });
 
   // Auto-save + auto-backup every 30 seconds
