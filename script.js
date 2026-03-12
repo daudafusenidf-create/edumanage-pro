@@ -73,8 +73,12 @@ function startRealtimeSync(schoolId) {
     const fbSavedAt = data.savedAt || 0;
 
     // Always mark as loaded when we receive any Firebase data
-    if (!_fbDataLoaded) _fbDataLoaded = true;
-    // Track highest savedAt seen from Firebase
+    if (!_fbDataLoaded) {
+      _fbDataLoaded = true;
+      // Set to now so immediate saves after first load don't echo back unnecessarily
+      _fbKnownSavedAt = Date.now();
+    }
+    // Track highest savedAt seen from Firebase for subsequent syncs
     if (fbSavedAt > _fbKnownSavedAt) _fbKnownSavedAt = fbSavedAt;
 
     if (_fbSyncPaused) return; // We just wrote this ourselves — skip echo
@@ -170,13 +174,16 @@ async function loadSchoolDataFromFirebase(schoolId) {
     // Firebase is newer or equal — use Firebase as source of truth
     localStorage.setItem(getSchoolKey(schoolId), JSON.stringify(fbData));
     loadSchoolData(getSchoolKey(schoolId));
-    _fbKnownSavedAt = fbSavedAt;
+    // Set _fbKnownSavedAt to NOW so any immediate saveToDB (triggered by renders/blur)
+    // won't have a strictly newer timestamp and won't overwrite Firebase unnecessarily.
+    // The user must actually do something (autosave has 1200ms delay) to get a newer stamp.
+    _fbKnownSavedAt = Date.now();
     _fbDataLoaded = true;
     return fbData;
   } else {
-    // Local is newer — keep local, record FB's timestamp, push on next save
+    // Local is genuinely newer — load it and allow push on next real user action
     loadSchoolData(getSchoolKey(schoolId));
-    _fbKnownSavedAt = fbSavedAt;
+    _fbKnownSavedAt = Date.now();
     _fbDataLoaded = true;
     return fbData;
   }
@@ -704,11 +711,8 @@ async function renderDeleteRequests() {
 // Save current school data to its own key
 function saveToDB() {
   if (!_currentSchoolKey) return;
-  // Only push to Firebase if the user actually changed something this session.
-  // On page reload / VSCode file-open, _unsavedChanges is false → skip Firebase push.
-  const _hasChanges = _unsavedChanges;
   try {
-    const savedAt = _hasChanges ? Date.now() : (_fbKnownSavedAt || Date.now());
+    const savedAt = Date.now();
     const data = {
       students: state.students,
       fees: state.fees,
@@ -754,11 +758,12 @@ function saveToDB() {
     // 1. Always save locally first
     localStorage.setItem(_currentSchoolKey, JSON.stringify(data));
 
-    // 2. Push to Firebase — only if user made actual changes this session
-    //    _hasChanges: user changed something (autosave set _unsavedChanges = true)
-    //    _fbDataLoaded: we confirmed what's in Firebase before writing
-    //    savedAt > _fbKnownSavedAt: our timestamp is genuinely newer
-    if (window._fbReady && _isOnline && _hasChanges && _fbDataLoaded && savedAt > _fbKnownSavedAt) {
+    // 2. Push to Firebase — guards:
+    //    _fbDataLoaded: we must have loaded from Firebase first this session
+    //    savedAt > _fbKnownSavedAt: only push if we loaded data before this moment
+    //    (on fresh page load _fbKnownSavedAt=0, so we wait until loadSchoolDataFromFirebase
+    //     sets it, after which any save with a newer timestamp is legitimate)
+    if (window._fbReady && _isOnline && _fbDataLoaded && !_fbSyncPaused && savedAt > _fbKnownSavedAt) {
       const schoolId = _currentSchoolKey.replace('edumanage_school_', '');
       showSyncStatus('saving');
       _fbSyncPaused = true; // Block our own onValue echo while we write
@@ -911,14 +916,13 @@ function initPageLeaveProtection() {
 
   // Save immediately when tab becomes hidden (phone lock, tab switch)
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden' && _currentSchoolKey && _unsavedChanges) {
+    if (document.visibilityState === 'hidden' && _currentSchoolKey) {
       saveNow();
     }
   });
 
-  // Save on window focus loss — only if there are actual unsaved changes
   window.addEventListener('blur', () => {
-    if (_currentSchoolKey && _unsavedChanges) saveNow();
+    if (_currentSchoolKey) saveNow();
   });
 
   // Auto-save + auto-backup every 30 seconds
