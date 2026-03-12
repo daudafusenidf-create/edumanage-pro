@@ -58,26 +58,33 @@ function showSyncStatus(status) {
 }
 
 function startRealtimeSync(schoolId) {
-  stopRealtimeSync();
+  stopRealtimeSync(); // Always detach any previous listener first
   if (!window._fbReady) return;
   const dbRef = window._fb.ref(fbSchoolPath(schoolId));
-  _fbListener = dbRef;
-  window._fb.onValue(dbRef, (snap) => {
+  // In Firebase v10 modular SDK, onValue() returns an UNSUBSCRIBE function.
+  // We must store and call THAT — not the ref — to properly detach.
+  _fbListener = window._fb.onValue(dbRef, (snap) => {
     if (!snap.exists() || _fbSyncPaused || !state.currentUser) return;
     const data = snap.val();
     const localJson = localStorage.getItem(getSchoolKey(schoolId));
     const localSavedAt = localJson ? (JSON.parse(localJson).savedAt || 0) : 0;
-    if ((data.savedAt || 0) <= localSavedAt) return;
+    if ((data.savedAt || 0) <= localSavedAt) return; // Already up to date
     _applyDataToState(data);
     localStorage.setItem(getSchoolKey(schoolId), JSON.stringify(data));
     refreshAllViews();
-    showToast('🔄 Updated from another device');
+    showToast('🔄 Synced from another device');
     showSyncStatus('online');
-  }, () => showSyncStatus('offline'));
+  }, (err) => { console.warn('[FB] onValue error:', err); showSyncStatus('offline'); });
 }
 
 function stopRealtimeSync() {
-  if (_fbListener) { try { window._fb.off(_fbListener); } catch(e){} _fbListener = null; }
+  if (_fbListener) {
+    try {
+      // _fbListener is now the unsubscribe function returned by onValue()
+      if (typeof _fbListener === 'function') _fbListener();
+    } catch(e) { console.warn('[FB] unsubscribe error:', e); }
+    _fbListener = null;
+  }
 }
 
 function refreshAllViews() {
@@ -666,6 +673,7 @@ async function renderDeleteRequests() {
 function saveToDB() {
   if (!_currentSchoolKey) return;
   try {
+    const savedAt = Date.now();
     const data = {
       students: state.students,
       fees: state.fees,
@@ -705,9 +713,32 @@ function saveToDB() {
       appTheme: state.appTheme,
       sidebarStyle: state.sidebarStyle,
       fontSize: state.fontSize,
+      savedAt,
     };
+
+    // 1. Always save locally first
     localStorage.setItem(_currentSchoolKey, JSON.stringify(data));
-    // Keep registry entry's displayName in sync
+
+    // 2. Push to Firebase so other devices receive the update via onValue
+    if (window._fbReady && _isOnline) {
+      const schoolId = _currentSchoolKey.replace('edumanage_school_', '');
+      showSyncStatus('saving');
+      _fbSyncPaused = true; // Block our own onValue echo while we write
+      window._fb.set(fbSchoolPath(schoolId), data)
+        .then(() => {
+          showSyncStatus('online');
+          // Keep paused briefly so our own onValue echo (from Firebase) is ignored
+          setTimeout(() => { _fbSyncPaused = false; }, 2000);
+        })
+        .catch(e => {
+          console.warn('[FB] Save to Firebase failed:', e);
+          _fbSyncPaused = false;
+          showSyncStatus('offline');
+          showToast('⚠️ Cloud save failed — data saved locally only.');
+        });
+    }
+
+    // 3. Keep registry entry's displayName in sync
     const reg = getRegistry();
     const entry = reg.find(s => s.key === _currentSchoolKey);
     if (entry) { entry.name = state.settings.schoolName; saveRegistry(reg); }
