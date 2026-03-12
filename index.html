@@ -21,9 +21,7 @@
       <p class="login-sub">Ghana Education Service · Multi-School Portal</p>
       <p style="font-size:13px;color:var(--text-muted);margin:18px 0 10px;font-weight:600;text-align:left;">SELECT YOUR SCHOOL</p>
       <div id="schoolListContainer" style="max-height:280px;overflow-y:auto;"></div>
-      <button class="btn-primary" id="registerSchoolBtn" style="width:100%;margin-top:16px;justify-content:center;">
-        <i class="fas fa-plus"></i> Register New School
-      </button>
+
       <button class="btn-ghost" id="restoreSchoolBtn" style="width:100%;margin-top:8px;justify-content:center;font-size:12px;">
         <i class="fas fa-trash-restore"></i> Restore Deleted School
       </button>
@@ -31,6 +29,12 @@
         <i class="fas fa-shield-alt"></i> Admin Panel
       </button>
       <p class="login-hint" style="margin-top:12px;">Each school's data is completely private and isolated.</p>
+      <div style="margin-top:20px;padding-top:14px;border-top:1px solid var(--border);text-align:center;font-size:11px;color:var(--text-muted);line-height:1.8;">
+        <div style="font-weight:700;font-size:12px;color:var(--text);margin-bottom:2px;"><i class="fas fa-laptop-code" style="color:var(--blue);"></i> TechPoint &amp; Graphics</div>
+        <div>CEO: <strong>Mr. Fuseni Dauda</strong></div>
+        <div><i class="fas fa-envelope" style="color:var(--blue);font-size:10px;"></i> <a href="mailto:daudafuseni.df@gmail.com" style="color:var(--blue);text-decoration:none;">daudafuseni.df@gmail.com</a></div>
+        <div><i class="fas fa-phone" style="color:var(--blue);font-size:10px;"></i> <a href="tel:+233241215173" style="color:var(--blue);text-decoration:none;">0241215173</a></div>
+      </div>
     </div>
   </div>
 
@@ -219,10 +223,56 @@
         </div>
         <div id="superAdminPanelBody" style="display:none;">
           <!-- Tab switcher -->
-          <div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:16px;">
-            <button class="comm-tab active" id="saTabRegistrations" onclick="switchSATab('registrations')" style="font-size:13px;padding:10px 16px;"><i class="fas fa-clock" style="color:#f59e0b;"></i> Pending Registrations</button>
-            <button class="comm-tab" id="saTabRecovery" onclick="switchSATab('recovery')" style="font-size:13px;padding:10px 16px;"><i class="fas fa-key" style="color:var(--blue);"></i> Recovery Requests</button>
-            <button class="comm-tab" id="saTabDeleteReq" onclick="switchSATab('deleteReq')" style="font-size:13px;padding:10px 16px;"><i class="fas fa-trash-alt" style="color:var(--red);"></i> Delete Requests</button>
+          <div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:16px;overflow-x:auto;">
+            <button class="comm-tab" id="saTabAddSchool" onclick="switchSATab('addSchool')" style="font-size:12px;padding:10px 14px;white-space:nowrap;"><i class="fas fa-plus-circle" style="color:#16a34a;"></i> Add School</button>
+            <button class="comm-tab active" id="saTabRegistrations" onclick="switchSATab('registrations')" style="font-size:12px;padding:10px 14px;white-space:nowrap;"><i class="fas fa-clock" style="color:#f59e0b;"></i> Registrations</button>
+            <button class="comm-tab" id="saTabCredentials" onclick="switchSATab('credentials')" style="font-size:12px;padding:10px 14px;white-space:nowrap;"><i class="fas fa-id-badge" style="color:var(--blue);"></i> Credentials</button>
+            <button class="comm-tab" id="saTabRecovery" onclick="switchSATab('recovery')" style="font-size:12px;padding:10px 14px;white-space:nowrap;"><i class="fas fa-key" style="color:#7c3aed;"></i> Recovery</button>
+            <button class="comm-tab" id="saTabDeleteReq" onclick="switchSATab('deleteReq')" style="font-size:12px;padding:10px 14px;white-space:nowrap;"><i class="fas fa-trash-alt" style="color:var(--red);"></i> Deleted</button>
+          </div>
+
+          <!-- Add School tab (Super Admin only) -->
+          <div id="saBodyAddSchool" style="display:none;">
+            <h4 style="margin:0 0 4px;"><i class="fas fa-plus-circle" style="color:#16a34a;"></i> Register New School</h4>
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">School is registered and activated immediately — no approval step needed.</p>
+            <div id="saRegisterFormError" style="display:none;background:#fee2e2;color:#dc2626;border-radius:7px;padding:9px 13px;margin-bottom:12px;font-size:13px;"></div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>School Name <span style="color:var(--red)">*</span></label>
+                <input type="text" class="form-input" id="saNewSchoolName" placeholder="e.g. Accra Primary School"/>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Administrator's Full Name</label>
+                <input type="text" class="form-input" id="saNewSchoolAdmin" placeholder="e.g. Mr. Kwesi Appiah"/>
+              </div>
+              <div class="form-group">
+                <label>Contact Phone</label>
+                <input type="tel" class="form-input" id="saNewSchoolPhone" placeholder="e.g. 0244123456"/>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Admin Username <span style="color:var(--red)">*</span></label>
+                <input type="text" class="form-input" id="saNewSchoolUsername" placeholder="e.g. accraprimary" autocomplete="off"/>
+              </div>
+              <div class="form-group">
+                <label>Admin Password <span style="color:var(--red)">*</span></label>
+                <div class="password-input-wrap">
+                  <input type="password" class="form-input" id="saNewSchoolPassword" placeholder="Min. 6 characters" autocomplete="new-password"/>
+                  <button type="button" class="pwd-toggle-btn" onclick="togglePwdField('saNewSchoolPassword',this)"><i class="fas fa-eye"></i></button>
+                </div>
+              </div>
+            </div>
+            <button class="btn-primary" onclick="saRegisterSchool()" style="width:100%;justify-content:center;margin-top:8px;" id="saRegisterBtn">
+              <i class="fas fa-plus-circle"></i> Register & Activate School
+            </button>
+            <div id="saRegisterSuccess" style="display:none;margin-top:14px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:14px;text-align:center;">
+              <div style="font-size:32px;margin-bottom:6px;">🎉</div>
+              <div style="font-weight:700;color:#16a34a;" id="saRegisterSuccessMsg"></div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">School is now active and ready to log in.</div>
+            </div>
           </div>
 
           <!-- Registrations tab -->
@@ -232,6 +282,18 @@
               <button class="btn-ghost" style="font-size:12px;" onclick="renderPendingSchoolsList()"><i class="fas fa-sync"></i> Refresh</button>
             </div>
             <div id="pendingSchoolsList"></div>
+          </div>
+
+          <!-- All Schools Credentials tab -->
+          <div id="saBodyCredentials" style="display:none;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+              <h4 style="margin:0;"><i class="fas fa-id-badge" style="color:#16a34a;"></i> All Registered Schools & Credentials</h4>
+              <button class="btn-ghost" style="font-size:12px;" onclick="renderAllSchoolCredentials()"><i class="fas fa-sync"></i> Refresh</button>
+            </div>
+            <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#15803d;">
+              <i class="fas fa-shield-alt"></i> <strong>Confidential:</strong> These credentials are only visible to the Super Admin. Keep them secure.
+            </div>
+            <div id="credentialsList"></div>
           </div>
 
           <!-- Recovery requests tab -->
@@ -274,7 +336,11 @@
         </div>
       </div>
       <div class="login-error" id="loginError" style="display:none;"><i class="fas fa-exclamation-circle"></i> <span id="loginErrorMsg">Wrong username or password.</span></div>
-      <button class="btn-primary" id="loginBtn" style="width:100%;margin-top:16px;justify-content:center;"><i class="fas fa-sign-in-alt"></i> Sign In</button>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-muted);margin-top:12px;cursor:pointer;">
+        <input type="checkbox" id="rememberMeCheck" style="width:15px;height:15px;cursor:pointer;accent-color:var(--blue);"/>
+        Remember me on this device
+      </label>
+      <button class="btn-primary" id="loginBtn" style="width:100%;margin-top:12px;justify-content:center;"><i class="fas fa-sign-in-alt"></i> Sign In</button>
       <button class="btn-ghost" id="backToSchoolsBtn" style="width:100%;margin-top:8px;justify-content:center;"><i class="fas fa-arrow-left"></i> Back to Schools</button>
       <button class="btn-ghost" onclick="document.getElementById('recoveryRequestModal').classList.add('open')" style="width:100%;margin-top:6px;justify-content:center;font-size:12px;opacity:.65;"><i class="fas fa-key"></i> Forgot Username / Password?</button>
     </div>
