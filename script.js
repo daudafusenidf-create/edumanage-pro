@@ -41,6 +41,7 @@ function getSchoolKey(schoolId) {
 let _isOnline      = navigator.onLine;
 let _fbListener    = null;
 let _fbSyncPaused  = false;
+let _fbDataLoaded  = false; // true only after we've confirmed our data is in sync with Firebase
 
 window.addEventListener('online',  () => { _isOnline = true;  showSyncStatus('online'); });
 window.addEventListener('offline', () => { _isOnline = false; showSyncStatus('offline'); });
@@ -64,11 +65,19 @@ function startRealtimeSync(schoolId) {
   // In Firebase v10 modular SDK, onValue() returns an UNSUBSCRIBE function.
   // We must store and call THAT — not the ref — to properly detach.
   _fbListener = window._fb.onValue(dbRef, (snap) => {
-    if (!snap.exists() || _fbSyncPaused || !state.currentUser) return;
+    if (!snap.exists() || !state.currentUser) return;
     const data = snap.val();
     const localJson = localStorage.getItem(getSchoolKey(schoolId));
     const localSavedAt = localJson ? (JSON.parse(localJson).savedAt || 0) : 0;
-    if ((data.savedAt || 0) <= localSavedAt) return; // Already up to date
+    const fbSavedAt = data.savedAt || 0;
+
+    // Always mark as loaded when we receive any Firebase data
+    if (!_fbDataLoaded) _fbDataLoaded = true;
+
+    if (_fbSyncPaused) return; // We just wrote this ourselves — skip echo
+    if (fbSavedAt <= localSavedAt) return; // Local is already up to date
+
+    // Firebase has newer data — apply it
     _applyDataToState(data);
     localStorage.setItem(getSchoolKey(schoolId), JSON.stringify(data));
     refreshAllViews();
@@ -143,11 +152,28 @@ async function loadRegistryFromFirebase() {
 async function loadSchoolDataFromFirebase(schoolId) {
   if (!window._fbReady) throw new Error('Firebase not ready');
   const snap = await window._fb.get(fbSchoolPath(schoolId));
-  if (!snap.exists()) throw new Error('No data in Firebase');
-  const data = snap.val();
-  localStorage.setItem(getSchoolKey(schoolId), JSON.stringify(data));
-  loadSchoolData(getSchoolKey(schoolId));
-  return data;
+  if (!snap.exists()) {
+    // Firebase has no data yet — this is a brand new school, safe to push local
+    _fbDataLoaded = true;
+    throw new Error('No data in Firebase');
+  }
+  const fbData  = snap.val();
+  const localJson = localStorage.getItem(getSchoolKey(schoolId));
+  const localSavedAt = localJson ? (JSON.parse(localJson).savedAt || 0) : 0;
+  const fbSavedAt    = fbData.savedAt || 0;
+
+  if (fbSavedAt >= localSavedAt) {
+    // Firebase is newer or equal — use Firebase as source of truth
+    localStorage.setItem(getSchoolKey(schoolId), JSON.stringify(fbData));
+    loadSchoolData(getSchoolKey(schoolId));
+    _fbDataLoaded = true;
+    return fbData;
+  } else {
+    // Local is newer — keep local but still mark as loaded so autosave can push
+    loadSchoolData(getSchoolKey(schoolId));
+    _fbDataLoaded = true;
+    return fbData;
+  }
 }
 
 function _applyDataToState(data) {
@@ -719,8 +745,9 @@ function saveToDB() {
     // 1. Always save locally first
     localStorage.setItem(_currentSchoolKey, JSON.stringify(data));
 
-    // 2. Push to Firebase so other devices receive the update via onValue
-    if (window._fbReady && _isOnline) {
+    // 2. Push to Firebase — only if we've loaded from Firebase first this session
+    // This prevents VSCode file-open / page refresh from overwriting other devices
+    if (window._fbReady && _isOnline && _fbDataLoaded) {
       const schoolId = _currentSchoolKey.replace('edumanage_school_', '');
       showSyncStatus('saving');
       _fbSyncPaused = true; // Block our own onValue echo while we write
@@ -4771,6 +4798,7 @@ function doLogout() {
   state.currentUser = null;
   _currentSchoolKey = null;
   _unsavedChanges   = false;
+  _fbDataLoaded     = false;
   const portal = document.getElementById('studentPortal');
   if (portal) portal.style.display = 'none';
   showSchoolSelector();
