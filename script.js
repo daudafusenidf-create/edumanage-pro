@@ -95,12 +95,40 @@ function refreshAllViews() {
 async function loadRegistryFromFirebase() {
   if (!window._fbReady) return;
   try {
+    // Get list of deleted/archived school IDs so we never re-add them
+    const deletedIds = new Set();
+    const archSnap = await window._fb.get('archives');
+    if (archSnap.exists()) Object.keys(archSnap.val()).forEach(id => deletedIds.add(id));
+
+    const psnap = await window._fb.get('pending_schools');
+    if (psnap.exists()) {
+      Object.values(psnap.val())
+        .filter(s => s.status === 'deleted' || s.status === 'rejected')
+        .forEach(s => deletedIds.add(s.schoolId));
+    }
+
+    const merged = [];
+
+    // Firebase registry is the source of truth — only use schools NOT in deletedIds
     const snap = await window._fb.get('registry');
-    if (!snap.exists()) return;
-    const fbReg = Object.values(snap.val());
-    const localReg = getRegistry();
-    const merged = [...fbReg];
-    localReg.forEach(l => { if (!merged.find(f => f.id === l.id)) merged.push(l); });
+    if (snap.exists()) {
+      Object.values(snap.val()).forEach(s => {
+        if (!deletedIds.has(s.id)) merged.push(s);
+      });
+    }
+
+    // Also add approved schools from pending_schools not already in merged
+    if (psnap.exists()) {
+      Object.values(psnap.val())
+        .filter(s => s.status === 'approved' && !deletedIds.has(s.schoolId))
+        .forEach(s => {
+          if (!merged.find(m => m.id === s.schoolId)) {
+            merged.push({ id: s.schoolId, key: getSchoolKey(s.schoolId), name: s.schoolName, createdAt: s.requestedAt });
+          }
+        });
+    }
+
+    // Always overwrite local registry with the clean Firebase version
     localStorage.setItem(REGISTRY_KEY, JSON.stringify(merged));
   } catch(e) { console.warn('[FB] registry load failed:', e); }
 }
@@ -137,6 +165,17 @@ function _applyDataToState(data) {
 // ══════════════════════════════════════
 const SUPER_ADMIN_CODE = 'EDUMANAGE-GH-2024'; // Change this to something private
 
+function changeMasterPin() {
+  const input = document.getElementById('masterPinSetting');
+  if (!input) return;
+  const newPin = input.value.trim();
+  if (!newPin || newPin.length < 4) { showToast('⚠️ PIN must be at least 4 characters.'); return; }
+  // Store the new PIN in localStorage for this school session
+  localStorage.setItem('edumanage_master_pin_override', newPin);
+  input.value = '';
+  showToast('✅ Master PIN updated successfully.');
+}
+
 async function submitSchoolRegistration(name, adminName, adminUser, adminPass, phone, email) {
   const schoolId  = 'school_' + Date.now();
   const schoolKey = getSchoolKey(schoolId);
@@ -171,6 +210,14 @@ async function submitSchoolRegistration(name, adminName, adminUser, adminPass, p
       status: 'pending',
       schoolData: freshData,
     });
+    // Store credentials separately for Super Admin reference
+    await window._fb.set('school_credentials/' + schoolId, {
+      schoolId, schoolName: name, adminName,
+      username: adminUser, password: adminPass,
+      contactPhone: phone || '',
+      registeredAt: new Date().toISOString(),
+      status: 'pending'
+    }).catch(()=>{});
   } else {
     // Offline: save locally as pending — user will need internet to get approved
     localStorage.setItem('pending_reg_' + schoolId, JSON.stringify({
@@ -213,9 +260,12 @@ async function approveSchool(schoolId) {
 
     // Mark as approved in pending_schools
     await window._fb.update('pending_schools/' + schoolId, { status: 'approved', approvedAt: new Date().toISOString() });
+    // Update credential status
+    await window._fb.update('school_credentials/' + schoolId, { status: 'approved', approvedAt: new Date().toISOString() }).catch(()=>{});
 
     showToast(`✅ "${pending.schoolName}" approved! They can now log in.`);
     renderPendingSchoolsList();
+    renderSchoolList(); // refresh school selector immediately
   } catch(e) { showToast('❌ Approval failed. Try again.'); console.error(e); }
 }
 
@@ -235,34 +285,181 @@ async function renderPendingSchoolsList() {
   const listEl = document.getElementById('pendingSchoolsList');
   if (!listEl) return;
   listEl.innerHTML = '<p style="text-align:center;padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading…</p>';
-  const pending = await loadPendingSchools();
-  if (!pending.length) {
-    listEl.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;"><i class="fas fa-check-circle" style="color:#22c55e;"></i> No pending registrations.</p>';
+
+  // Load ALL registrations (pending + approved history), not just pending
+  let allRegs = [];
+  if (window._fbReady && _isOnline) {
+    try {
+      const snap = await window._fb.get('pending_schools');
+      if (snap.exists()) allRegs = Object.values(snap.val()).filter(s => s.status !== 'deleted');
+    } catch(e) {}
+  }
+
+  const pending  = allRegs.filter(s => s.status === 'pending');
+  const approved = allRegs.filter(s => s.status === 'approved');
+  const rejected = allRegs.filter(s => s.status === 'rejected');
+
+  if (!allRegs.length) {
+    listEl.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;"><i class="fas fa-info-circle"></i> No registrations yet.</p>';
     return;
   }
-  listEl.innerHTML = pending.map(s => `
+  // Get passwords from school_credentials
+  let credsMap = {};
+  try {
+    const csnap = await window._fb.get('school_credentials');
+    if (csnap.exists()) { Object.values(csnap.val()).forEach(c => { credsMap[c.schoolId] = c; }); }
+  } catch(e) {}
+
+  function schoolCard(s, actions) {
+    const cred = credsMap[s.schoolId] || {};
+    return `
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px;">
       <div style="display:flex;align-items:flex-start;gap:12px;">
         <div style="font-size:28px;">🏫</div>
         <div style="flex:1;">
           <div style="font-weight:700;font-size:15px;">${escHtml(s.schoolName)}</div>
           <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
-            Admin: <strong>${escHtml(s.adminName||s.adminUser)}</strong> · Username: <code>${escHtml(s.adminUser)}</code>
+            Admin: <strong>${escHtml(s.adminName||s.adminUser||'—')}</strong>
           </div>
           ${s.contactPhone ? `<div style="font-size:12px;color:var(--text-muted);">📞 ${escHtml(s.contactPhone)}</div>` : ''}
-          ${s.contactEmail ? `<div style="font-size:12px;color:var(--text-muted);">📧 ${escHtml(s.contactEmail)}</div>` : ''}
-          <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Requested: ${new Date(s.requestedAt).toLocaleString('en-GH')}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Submitted: ${new Date(s.requestedAt).toLocaleString('en-GH')}</div>
+          <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:9px 12px;margin-top:10px;font-size:13px;">
+            <div><i class="fas fa-user" style="color:#16a34a;width:16px;"></i> <strong>Username:</strong> <code style="background:#dcfce7;padding:2px 8px;border-radius:5px;">${escHtml(cred.username||s.adminUser||'—')}</code></div>
+            <div style="margin-top:5px;"><i class="fas fa-lock" style="color:#16a34a;width:16px;"></i> <strong>Password:</strong> <code style="background:#dcfce7;padding:2px 8px;border-radius:5px;">${escHtml(cred.password||'—')}</code></div>
+          </div>
         </div>
       </div>
+      ${actions}
+    </div>`;
+  }
+
+  let html = '';
+
+  // Pending registrations
+  if (pending.length) {
+    html += `<div style="font-size:11px;font-weight:800;color:#d97706;letter-spacing:.5px;margin:4px 0 10px;">⏳ AWAITING APPROVAL (${pending.length})</div>`;
+    html += pending.map(s => schoolCard(s, `
       <div style="display:flex;gap:8px;margin-top:12px;">
-        <button class="btn-primary" style="flex:1;font-size:13px;padding:8px;" onclick="approveSchool('${s.schoolId}')">
-          <i class="fas fa-check"></i> Approve
-        </button>
-        <button class="btn-danger" style="flex:1;font-size:13px;padding:8px;" onclick="rejectSchool('${s.schoolId}')">
-          <i class="fas fa-times"></i> Reject
-        </button>
-      </div>
-    </div>`).join('');
+        <button class="btn-primary" style="flex:1;font-size:13px;padding:8px;" onclick="approveSchool('${s.schoolId}')"><i class="fas fa-check"></i> Approve</button>
+        <button class="btn-ghost" style="flex:1;font-size:13px;padding:8px;color:var(--red);border-color:var(--red);" onclick="rejectSchool('${s.schoolId}')"><i class="fas fa-times"></i> Reject</button>
+      </div>`)).join('');
+  } else {
+    html += `<p style="text-align:center;color:var(--text-muted);padding:10px 0 4px;font-size:13px;"><i class="fas fa-check-circle" style="color:#22c55e;"></i> No pending registrations.</p>`;
+  }
+
+  // Approved registrations history
+  if (approved.length) {
+    html += `<div style="font-size:11px;font-weight:800;color:#16a34a;letter-spacing:.5px;margin:18px 0 10px;">✅ APPROVED (${approved.length})</div>`;
+    html += approved.map(s => schoolCard(s, `
+      <div style="margin-top:8px;font-size:12px;color:#16a34a;font-weight:600;"><i class="fas fa-check-circle"></i> Approved ${s.approvedAt ? new Date(s.approvedAt).toLocaleDateString('en-GH') : ''}</div>`)).join('');
+  }
+
+  // Rejected
+  if (rejected.length) {
+    html += `<div style="font-size:11px;font-weight:800;color:var(--red);letter-spacing:.5px;margin:18px 0 10px;">❌ REJECTED (${rejected.length})</div>`;
+    html += rejected.map(s => schoolCard(s, `
+      <div style="margin-top:8px;font-size:12px;color:var(--red);font-weight:600;"><i class="fas fa-times-circle"></i> Rejected</div>`)).join('');
+  }
+
+  listEl.innerHTML = html;
+}
+
+async function saRegisterSchool() {
+  const name      = document.getElementById('saNewSchoolName').value.trim();
+  const adminName = document.getElementById('saNewSchoolAdmin').value.trim();
+  const adminUser = document.getElementById('saNewSchoolUsername').value.trim().toLowerCase();
+  const adminPass = document.getElementById('saNewSchoolPassword').value.trim();
+  const phone     = document.getElementById('saNewSchoolPhone')?.value.trim() || '';
+  const errEl     = document.getElementById('saRegisterFormError');
+  const successEl = document.getElementById('saRegisterSuccess');
+  const btn       = document.getElementById('saRegisterBtn');
+
+  errEl.style.display = 'none';
+  successEl.style.display = 'none';
+
+  if (!name || !adminUser || !adminPass) {
+    errEl.textContent = 'Please fill in School Name, Admin Username and Password.';
+    errEl.style.display = 'block'; return;
+  }
+  if (adminPass.length < 6) {
+    errEl.textContent = 'Password must be at least 6 characters.';
+    errEl.style.display = 'block'; return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Registering…';
+
+  try {
+    const schoolId  = 'school_' + Date.now();
+    const schoolKey = getSchoolKey(schoolId);
+
+    const freshData = {
+      students:[], fees:[], teachers:[], classes:[
+        {id:1,name:'KG1',level:'Kindergarten',teacher:''},{id:2,name:'KG2',level:'Kindergarten',teacher:''},
+        {id:3,name:'BS.1',level:'Basic',teacher:''},{id:4,name:'BS.2',level:'Basic',teacher:''},
+        {id:5,name:'BS.3',level:'Basic',teacher:''},{id:6,name:'BS.4',level:'Basic',teacher:''},
+        {id:7,name:'BS.5',level:'Basic',teacher:''},{id:8,name:'BS.7',level:'Basic',teacher:''},
+        {id:9,name:'BS.8',level:'Basic',teacher:''},{id:10,name:'BS.9',level:'Basic',teacher:''},
+      ],
+      albums:[], reports:[], weeklyRecords:[], attendance:[],
+      backupHistory:[], schoolLogo:null, driveClientId:'',
+      settings:{ schoolName:name, term:'First Term',
+        session: new Date().getFullYear()+'/'+(new Date().getFullYear()+1),
+        address:'', principal:adminName||'Administrator', district:'', motto:'' },
+      users:[{ id:1, username:adminUser, password:adminPass, role:'Admin', name:adminName||adminUser, active:true }],
+      nextStudentId:1,nextFeeId:1,nextTeacherId:1,nextClassId:11,
+      nextAlbumId:1,nextWeeklyId:1,nextAttendanceId:1,nextUserId:2,
+      nextResourceId:1,nextExamId:1,nextTransferId:1,nextAnnouncementId:1,
+      nextPNId:1,nextAdmissionId:1,nextExpenditureId:1,
+      savedAt: Date.now()
+    };
+
+    if (window._fbReady && _isOnline) {
+      // Write school data directly to live path (already approved)
+      await window._fb.set(fbSchoolPath(schoolId), freshData);
+
+      // Store in pending_schools as 'approved' (for registration history)
+      await window._fb.set('pending_schools/' + schoolId, {
+        schoolId, schoolName: name, adminName, adminUser,
+        contactPhone: phone, requestedAt: new Date().toISOString(),
+        status: 'approved', approvedAt: new Date().toISOString(),
+        schoolData: freshData
+      });
+
+      // Store credentials
+      await window._fb.set('school_credentials/' + schoolId, {
+        schoolId, schoolName: name, adminName,
+        username: adminUser, password: adminPass,
+        contactPhone: phone,
+        registeredAt: new Date().toISOString(),
+        status: 'approved'
+      });
+    }
+
+    // Add to local registry
+    const reg = getRegistry();
+    reg.push({ id: schoolId, key: schoolKey, name, createdAt: new Date().toISOString() });
+    saveRegistry(reg);
+    localStorage.setItem(schoolKey, JSON.stringify(freshData));
+
+    // Show success
+    document.getElementById('saRegisterSuccessMsg').textContent = `"${name}" registered successfully!`;
+    successEl.style.display = 'block';
+
+    // Clear form
+    ['saNewSchoolName','saNewSchoolAdmin','saNewSchoolUsername','saNewSchoolPassword','saNewSchoolPhone']
+      .forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+
+    renderSchoolList();
+    showToast(`✅ "${name}" is now active!`);
+  } catch(e) {
+    errEl.textContent = 'Failed to register. Check internet and try again.';
+    errEl.style.display = 'block';
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-plus-circle"></i> Register & Activate School';
+  }
 }
 
 function openSuperAdminPanel() {
@@ -274,21 +471,77 @@ function openSuperAdminPanel() {
   document.getElementById('superAdminCodeRow').style.display = 'none';
   document.getElementById('superAdminCodeError').style.display = 'none';
   document.getElementById('superAdminPanelBody').style.display = 'block';
-  switchSATab('registrations');
-  renderPendingSchoolsList();
+  switchSATab('addSchool');
 }
 
 function switchSATab(tab) {
-  const tabIds  = { registrations:'saTabRegistrations', recovery:'saTabRecovery', deleteReq:'saTabDeleteReq' };
-  const bodyIds = { registrations:'saBodyRegistrations', recovery:'saBodyRecovery', deleteReq:'saBodyDeleteReq' };
+  const tabIds  = { addSchool:'saTabAddSchool', registrations:'saTabRegistrations', recovery:'saTabRecovery', deleteReq:'saTabDeleteReq', credentials:'saTabCredentials' };
+  const bodyIds = { addSchool:'saBodyAddSchool', registrations:'saBodyRegistrations', recovery:'saBodyRecovery', deleteReq:'saBodyDeleteReq', credentials:'saBodyCredentials' };
   Object.keys(tabIds).forEach(t => {
     const tEl = document.getElementById(tabIds[t]);
     const bEl = document.getElementById(bodyIds[t]);
     if (tEl) tEl.classList.toggle('active', t===tab);
     if (bEl) bEl.style.display = t===tab ? '' : 'none';
   });
-  if (tab === 'recovery') renderRecoveryRequests();
-  if (tab === 'deleteReq') renderDeleteRequests();
+  if (tab === 'recovery')    renderRecoveryRequests();
+  if (tab === 'deleteReq')   renderDeleteRequests();
+  if (tab === 'credentials') renderAllSchoolCredentials();
+  if (tab === 'registrations') renderPendingSchoolsList();
+}
+
+async function renderAllSchoolCredentials() {
+  const el = document.getElementById('credentialsList');
+  if (!el) return;
+  el.innerHTML = '<p style="text-align:center;padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading…</p>';
+  if (!window._fbReady || !_isOnline) { el.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;">Internet required.</p>'; return; }
+  try {
+    const snap = await window._fb.get('school_credentials');
+    if (!snap.exists()) { el.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;"><i class="fas fa-info-circle"></i> No schools have registered yet.</p>'; return; }
+
+    // Only show active (approved) and restorable (deleted = in archive) schools
+    // Get archive IDs to know which deleted ones can still be restored
+    const archSnap = await window._fb.get('archives');
+    const archivableIds = new Set(archSnap.exists() ? Object.keys(archSnap.val()) : []);
+
+    const all = Object.values(snap.val())
+      .filter(c => c.status === 'approved' || (c.status === 'deleted' && archivableIds.has(c.schoolId)))
+      .sort((a,b) => new Date(b.registeredAt) - new Date(a.registeredAt));
+
+    if (!all.length) { el.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;"><i class="fas fa-info-circle"></i> No active or restorable schools.</p>'; return; }
+
+    el.innerHTML = all.map(c => {
+      const isArchived = c.status === 'deleted';
+      const statusColor  = isArchived ? '#d97706' : '#16a34a';
+      const statusBg     = isArchived ? '#fffbeb' : '#f0fdf4';
+      const statusBorder = isArchived ? '#fcd34d' : '#86efac';
+      const statusLabel  = isArchived ? '🗂️ Archived (Restorable)' : '✅ Active';
+      const credBg       = isArchived ? '#fffbeb' : '#f0fdf4';
+      const credBorder   = isArchived ? '#fcd34d' : '#86efac';
+      const credColor    = isArchived ? '#92400e' : '#15803d';
+      const codeBg       = isArchived ? '#fef3c7' : '#dcfce7';
+      return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+          <div style="font-size:24px;">${isArchived ? '🗂️' : '🏫'}</div>
+          <div style="flex:1;">
+            <div style="font-weight:700;font-size:15px;">${escHtml(c.schoolName)}</div>
+            <div style="font-size:12px;color:var(--text-muted);">Admin: ${escHtml(c.adminName||'—')}${c.contactPhone ? ' · 📞 '+escHtml(c.contactPhone) : ''}</div>
+            <div style="font-size:11px;color:var(--text-muted);">Registered: ${new Date(c.registeredAt).toLocaleString('en-GH')}</div>
+          </div>
+          <span style="background:${statusBg};border:1px solid ${statusBorder};color:${statusColor};padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;">${statusLabel}</span>
+        </div>
+        <div style="background:${credBg};border:1px solid ${credBorder};border-radius:8px;padding:10px 14px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div>
+            <div style="font-size:11px;color:var(--text-muted);font-weight:700;margin-bottom:3px;"><i class="fas fa-user" style="color:${credColor};"></i> USERNAME</div>
+            <code style="font-size:14px;font-weight:700;color:${credColor};background:${codeBg};padding:3px 10px;border-radius:6px;display:inline-block;">${escHtml(c.username)}</code>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text-muted);font-weight:700;margin-bottom:3px;"><i class="fas fa-lock" style="color:${credColor};"></i> PASSWORD</div>
+            <code style="font-size:14px;font-weight:700;color:${credColor};background:${codeBg};padding:3px 10px;border-radius:6px;display:inline-block;">${escHtml(c.password)}</code>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) { el.innerHTML = '<p style="color:var(--red);text-align:center;padding:20px;">Failed to load. Check connection.</p>'; }
 }
 
 // ── RECOVERY REQUESTS ──
@@ -400,7 +653,10 @@ async function renderDeleteRequests() {
           <div style="font-weight:700;">${escHtml(a.schoolName)}</div>
           <div style="font-size:12px;color:var(--text-muted);">Deleted ${new Date(a.deletedAt).toLocaleDateString('en-GH')} · <span style="color:var(--red);font-weight:600;">${days} days until permanent deletion</span></div>
         </div>
-        <button class="btn-primary" style="font-size:12px;padding:6px 14px;" onclick="restoreSchool('${a.schoolId}')"><i class="fas fa-trash-restore"></i> Restore</button>
+        <div style="display:flex;gap:6px;">
+          <button class="btn-primary" style="font-size:12px;padding:6px 14px;" onclick="restoreSchool('${a.schoolId}')"><i class="fas fa-trash-restore"></i> Restore</button>
+          <button class="btn-ghost" style="font-size:12px;padding:6px 14px;color:var(--red);border-color:var(--red);" onclick="permanentDeleteSchool('${a.schoolId}','${escHtml(a.schoolName)}')"><i class="fas fa-trash"></i> Delete Now</button>
+        </div>
       </div>`;
     }).join('');
   } catch(e) { el.innerHTML = '<p style="color:var(--red);text-align:center;padding:20px;">Failed to load.</p>'; }
@@ -4033,11 +4289,16 @@ function showSchoolSelector() {
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('schoolSelector').style.display = 'flex';
   stopRealtimeSync();
-  // Load registry from Firebase first (gets schools registered on other devices)
+  renderSchoolList(); // show local registry immediately
+  // Then also pull fresh from Firebase and re-render (picks up approved schools)
   if (window._fbReady && _isOnline) {
     loadRegistryFromFirebase().then(() => renderSchoolList());
-  } else {
-    renderSchoolList();
+  }
+  // If Firebase not ready yet, wait for it then sync
+  if (!window._fbReady) {
+    document.addEventListener('firebase-ready', () => {
+      loadRegistryFromFirebase().then(() => renderSchoolList());
+    }, { once: true });
   }
 }
 
@@ -4047,8 +4308,25 @@ function showLoginScreen(schoolId, schoolName) {
   document.getElementById('loginSchoolName').textContent  = schoolName;
   document.getElementById('loginScreen').dataset.schoolId = schoolId;
   document.getElementById('loginError').style.display     = 'none';
-  document.getElementById('loginUsername').value = '';
-  document.getElementById('loginPassword').value = '';
+  // Pre-fill remembered credentials
+  const remembered = localStorage.getItem('edumanage_remembered_' + schoolId);
+  if (remembered) {
+    try {
+      const { username, password } = JSON.parse(remembered);
+      document.getElementById('loginUsername').value = username || '';
+      document.getElementById('loginPassword').value = password || '';
+      const cb = document.getElementById('rememberMeCheck');
+      if (cb) cb.checked = true;
+    } catch(e) {
+      document.getElementById('loginUsername').value = '';
+      document.getElementById('loginPassword').value = '';
+    }
+  } else {
+    document.getElementById('loginUsername').value = '';
+    document.getElementById('loginPassword').value = '';
+    const cb = document.getElementById('rememberMeCheck');
+    if (cb) cb.checked = false;
+  }
 }
 
 function showApp() {
@@ -4115,6 +4393,10 @@ function deleteSchool(schoolId) {
     window._fb.set('archives/'+schoolId, payload)
       .then(() => { window._fb.set(fbSchoolPath(schoolId), null).catch(()=>{}); })
       .catch(e => console.warn('[FB] archive failed:', e));
+    // Mark as deleted in pending_schools and registry so it never reappears on refresh
+    window._fb.update('pending_schools/' + schoolId, { status: 'deleted', deletedAt: new Date().toISOString() }).catch(()=>{});
+    window._fb.update('school_credentials/' + schoolId, { status: 'deleted' }).catch(()=>{});
+    window._fb.set('registry/' + schoolId, null).catch(()=>{});
   }
   localStorage.removeItem(getSchoolKey(schoolId));
   saveRegistry(reg.filter(s => s.id !== schoolId));
@@ -4139,7 +4421,10 @@ async function showRestoreModal() {
         <div style="font-size:28px;">🏫</div>
         <div style="flex:1;"><div style="font-weight:700;">${escHtml(a.schoolName)}</div>
           <div style="font-size:12px;color:var(--text-muted);">Deleted ${new Date(a.deletedAt).toLocaleDateString('en-GH')} · <span style="color:var(--yellow);font-weight:600;">${days} days left</span></div></div>
-        <button class="btn-primary" style="font-size:12px;padding:6px 14px;" onclick="restoreSchool('${a.schoolId}')"><i class="fas fa-trash-restore"></i> Restore</button>
+        <div style="display:flex;gap:6px;">
+          <button class="btn-primary" style="font-size:12px;padding:6px 14px;" onclick="restoreSchool('${a.schoolId}')"><i class="fas fa-trash-restore"></i> Restore</button>
+          <button class="btn-ghost" style="font-size:12px;padding:6px 14px;color:var(--red);border-color:var(--red);" onclick="permanentDeleteSchool('${a.schoolId}','${escHtml(a.schoolName)}')"><i class="fas fa-trash"></i> Delete Now</button>
+        </div>
       </div>`;
     }).join('');
   } catch(e) { listEl.innerHTML = '<p style="color:var(--red);text-align:center;padding:20px;">Failed to load. Check connection.</p>'; }
@@ -4161,10 +4446,27 @@ async function restoreSchool(schoolId) {
       saveRegistry(reg);
     }
     await window._fb.set('archives/'+schoolId, null);
+    // Re-mark as approved so it shows up on refresh
+    await window._fb.update('pending_schools/' + schoolId, { status: 'approved' }).catch(()=>{});
+    await window._fb.update('school_credentials/' + schoolId, { status: 'approved' }).catch(()=>{});
     document.getElementById('restoreSchoolModal').classList.remove('open');
     renderSchoolList();
     showToast(`✅ "${a.schoolName}" restored with all data!`);
   } catch(e) { showToast('❌ Restore failed. Try again.'); console.error(e); }
+}
+
+async function permanentDeleteSchool(schoolId, schoolName) {
+  if (!confirm(`⚠️ PERMANENTLY DELETE "${schoolName}"?
+
+This will erase ALL data immediately from the archive. This CANNOT be undone.`)) return;
+  if (!window._fbReady || !_isOnline) { showToast('⚠️ Internet required.'); return; }
+  try {
+    await window._fb.set('archives/' + schoolId, null);
+    showToast(`🗑️ "${schoolName}" permanently deleted from archive.`);
+    // Refresh whichever list is visible
+    if (document.getElementById('restoreSchoolModal').classList.contains('open')) showRestoreModal();
+    if (document.getElementById('saBodyDeleteReq') && document.getElementById('saBodyDeleteReq').style.display !== 'none') renderDeleteRequests();
+  } catch(e) { showToast('❌ Failed to delete. Try again.'); }
 }
 
 function registerNewSchool() {
@@ -4254,6 +4556,13 @@ function attemptLogin() {
     resetLoginAttempts(schoolId);
     _currentSchoolKey = schoolKey;
     state.currentUser = user;
+    // Save credentials if Remember Me is checked
+    const rememberMe = document.getElementById('rememberMeCheck');
+    if (rememberMe && rememberMe.checked) {
+      localStorage.setItem('edumanage_remembered_' + schoolId, JSON.stringify({ username, password }));
+    } else {
+      localStorage.removeItem('edumanage_remembered_' + schoolId);
+    }
     showApp();
     startRealtimeSync(schoolId);
     showSyncStatus(_isOnline ? 'online' : 'offline');
@@ -4566,12 +4875,6 @@ function initLogin() {
   document.getElementById('saveNewPasswordBtn').addEventListener('click', saveNewPassword);
 
   // Register new school — open directly (who can access this page is controlled by the app URL)
-  document.getElementById('registerSchoolBtn').addEventListener('click', () => {
-    document.getElementById('registerSchoolModal').classList.add('open');
-  });
-  document.getElementById('closeRegisterModal').addEventListener('click', ()=>document.getElementById('registerSchoolModal').classList.remove('open'));
-  document.getElementById('cancelRegisterModal').addEventListener('click', ()=>document.getElementById('registerSchoolModal').classList.remove('open'));
-  document.getElementById('confirmRegisterBtn').addEventListener('click', registerNewSchool);
 
   // Restore deleted school — open directly
   const restoreBtn = document.getElementById('restoreSchoolBtn');
