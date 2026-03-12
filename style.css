@@ -327,6 +327,18 @@ textarea.form-input{resize:vertical;min-height:68px}
 /* RESPONSIVE */
 @media(max-width:1100px){.stats-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:900px){.settings-grid{grid-template-columns:1fr}}
+
+/* ── TABLET (800–1024px) ── */
+@media(max-width:1024px) and (min-width:801px) {
+  :root{--sidebar-w:220px}
+  .sidebar-brand-name{font-size:14px}
+  .nav-label{font-size:11px}
+  .topbar{padding:0 18px}
+  .section{padding:20px 18px 40px}
+  .stats-grid{grid-template-columns:repeat(2,1fr)}
+}
+
+/* ── MOBILE (≤800px) ── */
 @media(max-width:800px){
   .sidebar{transform:translateX(-100%)}
   .sidebar.open{transform:none}
@@ -335,16 +347,39 @@ textarea.form-input{resize:vertical;min-height:68px}
   .dash-grid{grid-template-columns:1fr}
   .dash-grid .full-width{grid-column:auto}
   .stats-grid{grid-template-columns:1fr 1fr}
-  .section{padding:18px 14px 40px}
-  .topbar{padding:0 14px}
+  .section{padding:16px 12px 40px}
+  .topbar{padding:0 12px;gap:8px}
   .search-wrap{display:none}
+  .topbar-right{gap:6px}
+  /* Bigger touch targets on mobile */
+  .tbl-btn{min-width:36px;min-height:36px}
+  .btn-primary,.btn-ghost{padding:9px 14px}
+  /* Tables scroll horizontally */
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table{min-width:520px}
+  /* Modal fills screen on phone */
+  .modal{width:96%;max-width:96% !important;border-radius:14px;max-height:92vh;overflow-y:auto}
+  .modal-body{padding:14px}
+  /* Form rows stack on phone */
+  .form-row{grid-template-columns:1fr !important}
+  /* Section header stacks */
+  .section-header{flex-wrap:wrap;gap:8px}
+  .section-header > div:last-child{width:100%;display:flex;flex-wrap:wrap;gap:6px}
+  /* Cards full width */
+  .card{padding:14px}
 }
 @media(max-width:500px){
   .stats-grid{grid-template-columns:1fr}
-  .form-row{grid-template-columns:1fr}
   .subjects-grid{grid-template-columns:1fr}
   .rc-student-info,.rc-footer-grid,.rc-conduct-row{grid-template-columns:1fr}
+  .topbar-school-name{display:none}
+  /* Login card fits small screens */
+  .login-card{padding:28px 18px;border-radius:16px}
+  .login-title{font-size:20px}
+  /* School selector fills screen */
+  #schoolSelector .login-card{max-width:100%;min-height:100dvh;border-radius:0;padding:32px 18px}
 }
+
 
 /* GALLERY PHOTOS */
 .gallery-photos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-top:4px}
@@ -392,8 +427,36 @@ textarea.form-input{resize:vertical;min-height:68px}
 .sr-meta{font-size:11px;color:var(--text-muted)}
 
 /* LOGIN SCREEN */
-.login-screen{position:fixed;inset:0;background:linear-gradient(135deg,#0f2a5e 0%,#1a6fd4 100%);display:flex;align-items:center;justify-content:center;z-index:9999}
-.login-card{background:#fff;border-radius:20px;padding:40px 36px;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,.3);text-align:center}
+.login-screen{position:fixed;inset:0;background:linear-gradient(135deg,#0f2a5e 0%,#1a6fd4 100%);display:flex;align-items:center;justify-content:center;z-index:9999;overflow:hidden}
+/* Animated background blobs */
+.login-screen::before,.login-screen::after{content:'';position:absolute;border-radius:50%;opacity:.18;animation:blobFloat 8s ease-in-out infinite alternate}
+.login-screen::before{width:500px;height:500px;background:radial-gradient(circle,#60a5fa,#3b82f6);top:-120px;right:-120px;animation-delay:0s}
+.login-screen::after{width:380px;height:380px;background:radial-gradient(circle,#818cf8,#6366f1);bottom:-80px;left:-80px;animation-delay:3s}
+@keyframes blobFloat{0%{transform:scale(1) translate(0,0)}100%{transform:scale(1.15) translate(20px,-20px)}}
+.login-card{background:#fff;border-radius:20px;padding:40px 36px;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,.3);text-align:center;position:relative;z-index:1;animation:loginCardIn .6s cubic-bezier(.22,.68,0,1.2) both}
+@keyframes loginCardIn{from{opacity:0;transform:translateY(32px) scale(.97)}to{opacity:1;transform:none}}
+
+/* Staggered entrance for child elements */
+.login-card .login-logo{animation:fadeSlideUp .5s .1s both}
+.login-card .login-title{animation:fadeSlideUp .5s .18s both}
+.login-card .login-sub{animation:fadeSlideUp .5s .24s both}
+.login-card .form-group{animation:fadeSlideUp .5s .3s both}
+.login-card .btn-primary{animation:fadeSlideUp .5s .38s both}
+@keyframes fadeSlideUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+
+/* School selector cards staggered */
+.school-card{display:flex;align-items:center;gap:14px;padding:14px 16px;border:1.5px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;transition:all .18s;margin-bottom:8px;background:var(--surface);animation:schoolCardIn .4s both}
+@keyframes schoolCardIn{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}
+.school-card:nth-child(1){animation-delay:.05s}
+.school-card:nth-child(2){animation-delay:.12s}
+.school-card:nth-child(3){animation-delay:.19s}
+.school-card:nth-child(4){animation-delay:.26s}
+.school-card:nth-child(5){animation-delay:.33s}
+.school-card:hover{border-color:var(--blue);background:var(--blue-light);transform:translateX(4px)}
+.school-card-icon{width:42px;height:42px;border-radius:10px;background:var(--blue-light);color:var(--blue);display:grid;place-items:center;font-size:18px;flex-shrink:0}
+.school-card-info{flex:1;display:flex;flex-direction:column;gap:2px}
+.school-card-info strong{font-size:14px;color:var(--text)}
+
 .login-logo{width:64px;height:64px;background:var(--blue);border-radius:16px;display:grid;place-items:center;font-size:26px;color:#fff;margin:0 auto 16px;box-shadow:0 8px 24px rgba(26,111,212,.35)}
 .login-title{font-size:24px;font-weight:800;color:var(--text)}
 .login-sub{font-size:13px;color:var(--text-muted);margin-top:4px;margin-bottom:4px}

@@ -1,40 +1,18 @@
 /* ════════════════════════════════════════
    EduManage Pro — GES Edition
    Full Application Logic
-   Firebase Realtime DB + localStorage fallback
 ════════════════════════════════════════ */
 
 // ════════════════════════════════════════
 // MULTI-SCHOOL DATABASE ARCHITECTURE
-// Primary:  Firebase Realtime Database (multi-device sync)
-// Fallback: localStorage (offline / no internet)
+// Each school gets its own isolated localStorage key
+// Registry key stores all registered schools
 // ════════════════════════════════════════
 
-const REGISTRY_KEY = 'edumanage_schools_registry';
-let _currentSchoolKey = null;
-let _fbListener = null;       // active Firebase onValue listener
-let _fbSyncPaused = false;    // pause incoming sync while we are saving
-let _isOnline = navigator.onLine;
+const REGISTRY_KEY = 'edumanage_schools_registry'; // list of all schools
+let _currentSchoolKey = null;  // active school's storage key
 
-window.addEventListener('online',  () => { _isOnline = true;  showSyncStatus('online');  });
-window.addEventListener('offline', () => { _isOnline = false; showSyncStatus('offline'); });
-
-function showSyncStatus(status) {
-  const el = document.getElementById('syncStatusBadge');
-  if (!el) return;
-  if (status === 'online') {
-    el.innerHTML = '<i class="fas fa-wifi"></i> Live Sync';
-    el.style.background = 'var(--green)'; el.style.color = '#fff';
-  } else if (status === 'offline') {
-    el.innerHTML = '<i class="fas fa-wifi-slash"></i> Offline';
-    el.style.background = 'var(--red)'; el.style.color = '#fff';
-  } else if (status === 'syncing') {
-    el.innerHTML = '<i class="fas fa-sync fa-spin"></i> Syncing…';
-    el.style.background = 'var(--yellow)'; el.style.color = '#fff';
-  }
-}
-
-// ── REGISTRY: stored BOTH in Firebase & localStorage ──
+// ── SCHOOL REGISTRY ──
 function getRegistry() {
   try {
     const raw = localStorage.getItem(REGISTRY_KEY);
@@ -44,255 +22,488 @@ function getRegistry() {
 
 function saveRegistry(schools) {
   localStorage.setItem(REGISTRY_KEY, JSON.stringify(schools));
-  // Mirror registry to Firebase so other devices can see all schools
-  if (window._fbReady) {
-    window._fb.set('registry', schools).catch(e => console.warn('[FB] registry save failed:', e));
+  // Also push registry to Firebase so other devices see it
+  if (window._fbReady && _isOnline) {
+    const reg = {}; schools.forEach(s => { reg[s.id] = s; });
+    window._fb.set('registry', reg).catch(e => console.warn('[FB] registry save failed:', e));
   }
-}
-
-async function loadRegistryFromFirebase() {
-  if (!window._fbReady) return;
-  try {
-    const snap = await window._fb.get('registry');
-    if (snap.exists()) {
-      const fbReg = snap.val();
-      // Merge: firebase is source of truth, but keep local-only entries too
-      const localReg = getRegistry();
-      const merged = [...fbReg];
-      localReg.forEach(ls => {
-        if (!merged.find(fb => fb.id === ls.id)) merged.push(ls);
-      });
-      localStorage.setItem(REGISTRY_KEY, JSON.stringify(merged));
-      return merged;
-    }
-  } catch(e) { console.warn('[FB] registry load failed:', e); }
-  return getRegistry();
 }
 
 function getSchoolKey(schoolId) {
   return `edumanage_school_${schoolId}`;
 }
 
-// Firebase path for a school: schools/<schoolId>/data
+// ══════════════════════════════════════
+// FIREBASE LAYER
+// ══════════════════════════════════════
+
+// Runtime state
+let _isOnline      = navigator.onLine;
+let _fbListener    = null;
+let _fbSyncPaused  = false;
+
+window.addEventListener('online',  () => { _isOnline = true;  showSyncStatus('online'); });
+window.addEventListener('offline', () => { _isOnline = false; showSyncStatus('offline'); });
+
 function fbSchoolPath(schoolId) {
   return 'schools/' + schoolId + '/data';
 }
 
-// ── SAVE: Firebase PRIMARY + localStorage FALLBACK ──
-function _buildSavePayload(stripPhotos = false) {
-  const albums = stripPhotos
-    ? state.albums.map(a=>({...a, photos:(a.photos||[]).map(p=>({name:p.name,src:p.src&&p.src.length>500000?'[photo-omitted]':p.src}))}))
-    : state.albums; // Firebase gets full photos
-  return {
-    students:             state.students,
-    fees:                 state.fees,
-    teachers:             state.teachers,
-    classes:              state.classes,
-    albums,
-    reports:              state.reports,
-    weeklyRecords:        state.weeklyRecords,
-    attendance:           state.attendance,
-    settings:             state.settings,
-    schoolLogo:           state.schoolLogo,
-    driveClientId:        state.driveClientId,
-    backupHistory:        state.backupHistory,
-    users:                state.users,
-    admissions:           state.admissions,
-    nextAdmissionId:      state.nextAdmissionId,
-    nextStudentId:        state.nextStudentId,
-    nextFeeId:            state.nextFeeId,
-    nextTeacherId:        state.nextTeacherId,
-    nextClassId:          state.nextClassId,
-    nextAlbumId:          state.nextAlbumId,
-    nextWeeklyId:         state.nextWeeklyId,
-    nextAttendanceId:     state.nextAttendanceId,
-    nextUserId:           state.nextUserId,
-    expenditures:         state.expenditures,
-    nextExpenditureId:    state.nextExpenditureId,
-    resources:            state.resources,
-    nextResourceId:       state.nextResourceId,
-    exams:                state.exams,
-    nextExamId:           state.nextExamId,
-    transfers:            state.transfers,
-    nextTransferId:       state.nextTransferId,
-    announcements:        state.announcements,
-    nextAnnouncementId:   state.nextAnnouncementId,
-    parentNotifications:  state.parentNotifications,
-    nextPNId:             state.nextPNId,
-    appTheme:             state.appTheme,
-    sidebarStyle:         state.sidebarStyle,
-    fontSize:             state.fontSize,
-    savedAt:              Date.now(),
-  };
+function showSyncStatus(status) {
+  const el = document.getElementById('syncStatus');
+  if (!el) return;
+  if (status === 'online')  { el.innerHTML = '<i class="fas fa-circle" style="color:#22c55e;font-size:8px;"></i> Synced'; el.style.color='#22c55e'; }
+  if (status === 'offline') { el.innerHTML = '<i class="fas fa-circle" style="color:#f59e0b;font-size:8px;"></i> Offline'; el.style.color='#f59e0b'; }
+  if (status === 'saving')  { el.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size:9px;"></i> Saving…'; el.style.color='var(--text-muted)'; }
 }
 
-// Save to Firebase (primary) AND localStorage (fallback/offline cache)
-function saveToDB() {
-  if (!_currentSchoolKey) return;
-  try {
-    const dataForLocal  = _buildSavePayload(true);   // strip large photos for localStorage
-    const dataForCloud  = _buildSavePayload(false);  // full photos for Firebase
-    const jsonStr       = JSON.stringify(dataForLocal);
-
-    // Always save to localStorage for offline access
-    localStorage.setItem(_currentSchoolKey, jsonStr);
-
-    // Keep registry name in sync
-    const reg   = getRegistry();
-    const entry = reg.find(s => s.key === _currentSchoolKey);
-    if (entry) { entry.name = state.settings.schoolName; saveRegistry(reg); }
-
-    // Save to Firebase if online
-    if (window._fbReady && _isOnline) {
-      const schoolId = _currentSchoolKey.replace('edumanage_school_', '');
-      showSyncStatus('syncing');
-      _fbSyncPaused = true;
-      window._fb.set(fbSchoolPath(schoolId), dataForCloud)
-        .then(() => {
-          showSyncStatus('online');
-          setTimeout(() => { _fbSyncPaused = false; }, 1500);
-        })
-        .catch(e => {
-          console.warn('[FB] save failed, data kept locally:', e);
-          showSyncStatus('offline');
-          _fbSyncPaused = false;
-        });
-    }
-  } catch(e) { console.warn('Save failed:', e); }
-}
-
-// Apply a data snapshot object into state (shared by load & realtime listener)
-function _applyDataToState(data) {
-  if (!data) return false;
-  if (data.students)            state.students            = data.students;
-  if (data.fees)                state.fees                = data.fees;
-  if (data.teachers)            state.teachers            = data.teachers;
-  if (data.classes)             state.classes             = data.classes;
-  if (data.albums)              state.albums              = data.albums;
-  if (data.reports)             state.reports             = data.reports;
-  if (data.weeklyRecords)       state.weeklyRecords       = data.weeklyRecords;
-  if (data.attendance)          state.attendance          = data.attendance;
-  if (data.settings)            Object.assign(state.settings, data.settings);
-  if (data.schoolLogo)          state.schoolLogo          = data.schoolLogo;
-  if (data.driveClientId)       state.driveClientId       = data.driveClientId;
-  if (data.backupHistory)       state.backupHistory       = data.backupHistory;
-  if (data.users)               state.users               = data.users;
-  if (data.expenditures)        state.expenditures        = data.expenditures;
-  if (data.resources)           state.resources           = data.resources;
-  if (data.nextResourceId)      state.nextResourceId      = data.nextResourceId;
-  if (data.exams)               state.exams               = data.exams;
-  if (data.nextExamId)          state.nextExamId          = data.nextExamId;
-  if (data.transfers)           state.transfers           = data.transfers;
-  if (data.nextTransferId)      state.nextTransferId      = data.nextTransferId;
-  if (data.announcements)       state.announcements       = data.announcements;
-  if (data.nextAnnouncementId)  state.nextAnnouncementId  = data.nextAnnouncementId;
-  if (data.parentNotifications) state.parentNotifications = data.parentNotifications;
-  if (data.nextPNId)            state.nextPNId            = data.nextPNId;
-  if (data.appTheme)            state.appTheme            = data.appTheme;
-  if (data.sidebarStyle)        state.sidebarStyle        = data.sidebarStyle;
-  if (data.fontSize)            state.fontSize            = data.fontSize;
-  if (data.admissions)          state.admissions          = data.admissions;
-  if (data.nextAdmissionId)     state.nextAdmissionId     = data.nextAdmissionId;
-  if (data.nextStudentId)       state.nextStudentId       = data.nextStudentId;
-  if (data.nextFeeId)           state.nextFeeId           = data.nextFeeId;
-  if (data.nextTeacherId)       state.nextTeacherId       = data.nextTeacherId;
-  if (data.nextClassId)         state.nextClassId         = data.nextClassId;
-  if (data.nextAlbumId)         state.nextAlbumId         = data.nextAlbumId;
-  if (data.nextWeeklyId)        state.nextWeeklyId        = data.nextWeeklyId;
-  if (data.nextAttendanceId)    state.nextAttendanceId    = data.nextAttendanceId;
-  if (data.nextUserId)          state.nextUserId          = data.nextUserId;
-  if (data.nextExpenditureId)   state.nextExpenditureId   = data.nextExpenditureId;
-  return true;
-}
-
-// Load from localStorage immediately (fast, offline-capable)
-function loadSchoolData(schoolKey) {
-  try {
-    const raw = localStorage.getItem(schoolKey);
-    if (!raw) return false;
-    return _applyDataToState(JSON.parse(raw));
-  } catch(e) { console.warn('Load failed:', e); return false; }
-}
-
-// Load from Firebase (async, most up-to-date)
-async function loadSchoolDataFromFirebase(schoolId) {
-  if (!window._fbReady || !_isOnline) return false;
-  try {
-    showSyncStatus('syncing');
-    const snap = await window._fb.get(fbSchoolPath(schoolId));
-    if (snap.exists()) {
-      const data = snap.val();
-      _applyDataToState(data);
-      // Also cache locally so offline works
-      localStorage.setItem(getSchoolKey(schoolId), JSON.stringify(data));
-      showSyncStatus('online');
-      console.log('[FB] Loaded latest data from Firebase ✅');
-      return true;
-    }
-  } catch(e) {
-    console.warn('[FB] Firebase load failed, using local cache:', e);
-    showSyncStatus('offline');
-  }
-  return false;
-}
-
-// Start real-time listener — updates all open devices when any device saves
 function startRealtimeSync(schoolId) {
-  stopRealtimeSync(); // clear any previous listener
+  stopRealtimeSync();
   if (!window._fbReady) return;
-  const path = fbSchoolPath(schoolId);
-  const dbRef = window._fb.ref(path);
-  _fbListener = { ref: dbRef, path };
+  const dbRef = window._fb.ref(fbSchoolPath(schoolId));
+  _fbListener = dbRef;
   window._fb.onValue(dbRef, (snap) => {
-    if (!snap.exists()) return;
-    if (_fbSyncPaused) return; // this device just saved, ignore echo
-    if (!state.currentUser) return; // not logged in
+    if (!snap.exists() || _fbSyncPaused || !state.currentUser) return;
     const data = snap.val();
-    // Only apply if the incoming data is newer than our last save
     const localJson = localStorage.getItem(getSchoolKey(schoolId));
     const localSavedAt = localJson ? (JSON.parse(localJson).savedAt || 0) : 0;
     if ((data.savedAt || 0) <= localSavedAt) return;
-    console.log('[FB] 🔄 Remote update received — refreshing UI');
     _applyDataToState(data);
     localStorage.setItem(getSchoolKey(schoolId), JSON.stringify(data));
     refreshAllViews();
-    showToast('🔄 Data updated from another device');
+    showToast('🔄 Updated from another device');
     showSyncStatus('online');
-  }, (err) => {
-    console.warn('[FB] Listener error:', err);
-    showSyncStatus('offline');
-  });
+  }, () => showSyncStatus('offline'));
 }
 
 function stopRealtimeSync() {
-  if (_fbListener) {
-    window._fb.off(_fbListener.ref);
-    _fbListener = null;
-  }
+  if (_fbListener) { try { window._fb.off(_fbListener); } catch(e){} _fbListener = null; }
 }
 
-// Re-render all visible views after a remote sync
 function refreshAllViews() {
   try {
     renderStudents(); renderFees(); renderTeachers(); renderClasses();
     renderGallery(); renderSavedReports(); renderWeekly();
     renderAttendance(); renderUsers(); updateDashStats(); updateFeeStats();
-    if (typeof renderResources === 'function') renderResources();
-    if (typeof renderExams === 'function') renderExams();
-    if (typeof renderTransfers === 'function') renderTransfers();
-    if (typeof renderAnnouncements === 'function') renderAnnouncements();
-    if (typeof renderParentNotifications === 'function') renderParentNotifications();
-    if (typeof initTheme === 'function') initTheme();
-    if (state.schoolLogo) applyLogo(state.schoolLogo);
-    const s = state.settings;
-    const sv = (id, val) => { const el=document.getElementById(id); if(el&&val!==undefined) el.value=val; };
-    sv('schoolName',s.schoolName); sv('sessionYear',s.session);
-    sv('schoolAddress',s.address); sv('principalName',s.principal);
-    sv('gesDistrict',s.district); sv('schoolMotto',s.motto);
-    if (document.getElementById('currentTerm')) document.getElementById('currentTerm').value = s.term||'';
-    document.querySelector('.user-name') && (document.querySelector('.user-name').textContent = state.currentUser?.name || '');
-    document.getElementById('sidebarSchoolName') && (document.getElementById('sidebarSchoolName').textContent = s.schoolName);
-  } catch(e) { console.warn('[refreshAllViews]', e); }
+    if (typeof renderResources==='function') renderResources();
+    if (typeof renderExams==='function') renderExams();
+    if (typeof renderTransfers==='function') renderTransfers();
+    if (typeof renderAnnouncements==='function') renderAnnouncements();
+  } catch(e) {}
+}
+
+async function loadRegistryFromFirebase() {
+  if (!window._fbReady) return;
+  try {
+    const snap = await window._fb.get('registry');
+    if (!snap.exists()) return;
+    const fbReg = Object.values(snap.val());
+    const localReg = getRegistry();
+    const merged = [...fbReg];
+    localReg.forEach(l => { if (!merged.find(f => f.id === l.id)) merged.push(l); });
+    localStorage.setItem(REGISTRY_KEY, JSON.stringify(merged));
+  } catch(e) { console.warn('[FB] registry load failed:', e); }
+}
+
+async function loadSchoolDataFromFirebase(schoolId) {
+  if (!window._fbReady) throw new Error('Firebase not ready');
+  const snap = await window._fb.get(fbSchoolPath(schoolId));
+  if (!snap.exists()) throw new Error('No data in Firebase');
+  const data = snap.val();
+  localStorage.setItem(getSchoolKey(schoolId), JSON.stringify(data));
+  loadSchoolData(getSchoolKey(schoolId));
+  return data;
+}
+
+function _applyDataToState(data) {
+  const merge = (key, def) => { if (data[key] !== undefined) state[key] = data[key]; else if (state[key]===undefined) state[key]=def; };
+  merge('students',[]); merge('fees',[]); merge('teachers',[]); merge('classes',[]);
+  merge('albums',[]); merge('reports',[]); merge('weeklyRecords',[]); merge('attendance',[]);
+  merge('settings',{}); merge('users',[]); merge('admissions',[]); merge('expenditures',[]);
+  merge('resources',[]); merge('exams',[]); merge('transfers',[]); merge('announcements',[]);
+  merge('parentNotifications',[]); merge('backupHistory',[]);
+  merge('nextStudentId',1); merge('nextFeeId',1); merge('nextTeacherId',1);
+  merge('nextClassId',1); merge('nextUserId',1); merge('nextResourceId',1);
+  merge('nextExamId',1); merge('nextAlbumId',1); merge('nextAttendanceId',1);
+  merge('nextWeeklyId',1); merge('nextTransferId',1); merge('nextAnnouncementId',1);
+  merge('nextPNId',1); merge('nextAdmissionId',1); merge('nextExpenditureId',1);
+  if (data.schoolLogo !== undefined) state.schoolLogo = data.schoolLogo;
+}
+
+// ══════════════════════════════════════
+// SCHOOL VERIFICATION SYSTEM
+// Schools register → status "pending" → you approve → they can log in
+// Super Admin code (only you know this)
+// ══════════════════════════════════════
+const SUPER_ADMIN_CODE = 'EDUMANAGE-GH-2024'; // Change this to something private
+
+async function submitSchoolRegistration(name, adminName, adminUser, adminPass, phone, email) {
+  const schoolId  = 'school_' + Date.now();
+  const schoolKey = getSchoolKey(schoolId);
+
+  const freshData = {
+    students:[], fees:[], teachers:[], classes:[
+      {id:1,name:'KG1',level:'Kindergarten',teacher:''},{id:2,name:'KG2',level:'Kindergarten',teacher:''},
+      {id:3,name:'P1',level:'Primary',teacher:''},{id:4,name:'P2',level:'Primary',teacher:''},
+      {id:5,name:'P3',level:'Primary',teacher:''},{id:6,name:'P4',level:'Primary',teacher:''},
+      {id:7,name:'P5',level:'Primary',teacher:''},{id:8,name:'P6',level:'Primary',teacher:''},
+      {id:9,name:'JHS1',level:'JHS',teacher:''},{id:10,name:'JHS2',level:'JHS',teacher:''},
+      {id:11,name:'JHS3',level:'JHS',teacher:''},
+    ],
+    albums:[], reports:[], weeklyRecords:[], attendance:[],
+    backupHistory:[], schoolLogo:null, driveClientId:'',
+    settings:{ schoolName:name, term:'First Term',
+      session: new Date().getFullYear()+'/'+(new Date().getFullYear()+1),
+      address:'', principal:adminName||'Administrator', district:'', motto:'' },
+    users:[{ id:1, username:adminUser, password:adminPass, role:'Admin', name:adminName||adminUser, active:false }],
+    nextStudentId:1,nextFeeId:1,nextTeacherId:1,nextClassId:12,
+    nextAlbumId:1,nextWeeklyId:1,nextAttendanceId:1,nextUserId:2,
+    nextResourceId:1,nextExamId:1,nextTransferId:1,nextAnnouncementId:1,
+    nextPNId:1,nextAdmissionId:1,nextExpenditureId:1,
+  };
+
+  // Save the request to Firebase under 'pending_schools'
+  if (window._fbReady && _isOnline) {
+    await window._fb.set('pending_schools/' + schoolId, {
+      schoolId, schoolName: name, adminName, adminUser,
+      contactPhone: phone || '', contactEmail: email || '',
+      requestedAt: new Date().toISOString(),
+      status: 'pending',
+      schoolData: freshData,
+    });
+  } else {
+    // Offline: save locally as pending — user will need internet to get approved
+    localStorage.setItem('pending_reg_' + schoolId, JSON.stringify({
+      schoolId, schoolName: name, adminUser, status: 'pending', schoolData: freshData
+    }));
+  }
+  return schoolId;
+}
+
+async function loadPendingSchools() {
+  if (!window._fbReady || !_isOnline) return [];
+  try {
+    const snap = await window._fb.get('pending_schools');
+    if (!snap.exists()) return [];
+    return Object.values(snap.val()).filter(s => s.status === 'pending');
+  } catch(e) { return []; }
+}
+
+async function approveSchool(schoolId) {
+  if (!window._fbReady || !_isOnline) { showToast('⚠️ Internet required.'); return; }
+  try {
+    // Get the pending record
+    const snap = await window._fb.get('pending_schools/' + schoolId);
+    if (!snap.exists()) { showToast('⚠️ School not found.'); return; }
+    const pending = snap.val();
+    const data = { ...pending.schoolData, savedAt: Date.now() };
+
+    // Activate the admin user
+    data.users = data.users.map(u => ({ ...u, active: true }));
+
+    // Write to live schools path
+    await window._fb.set(fbSchoolPath(schoolId), data);
+
+    // Add to registry
+    const reg = getRegistry();
+    if (!reg.find(s => s.id === schoolId)) {
+      reg.push({ id: schoolId, key: getSchoolKey(schoolId), name: pending.schoolName, createdAt: pending.requestedAt });
+      saveRegistry(reg);
+    }
+
+    // Mark as approved in pending_schools
+    await window._fb.update('pending_schools/' + schoolId, { status: 'approved', approvedAt: new Date().toISOString() });
+
+    showToast(`✅ "${pending.schoolName}" approved! They can now log in.`);
+    renderPendingSchoolsList();
+  } catch(e) { showToast('❌ Approval failed. Try again.'); console.error(e); }
+}
+
+async function rejectSchool(schoolId) {
+  if (!window._fbReady || !_isOnline) { showToast('⚠️ Internet required.'); return; }
+  try {
+    const snap = await window._fb.get('pending_schools/' + schoolId);
+    if (!snap.exists()) return;
+    const pending = snap.val();
+    await window._fb.update('pending_schools/' + schoolId, { status: 'rejected', rejectedAt: new Date().toISOString() });
+    showToast(`🗑️ "${pending.schoolName}" registration rejected.`);
+    renderPendingSchoolsList();
+  } catch(e) { showToast('❌ Failed. Try again.'); }
+}
+
+async function renderPendingSchoolsList() {
+  const listEl = document.getElementById('pendingSchoolsList');
+  if (!listEl) return;
+  listEl.innerHTML = '<p style="text-align:center;padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading…</p>';
+  const pending = await loadPendingSchools();
+  if (!pending.length) {
+    listEl.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;"><i class="fas fa-check-circle" style="color:#22c55e;"></i> No pending registrations.</p>';
+    return;
+  }
+  listEl.innerHTML = pending.map(s => `
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px;">
+      <div style="display:flex;align-items:flex-start;gap:12px;">
+        <div style="font-size:28px;">🏫</div>
+        <div style="flex:1;">
+          <div style="font-weight:700;font-size:15px;">${escHtml(s.schoolName)}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
+            Admin: <strong>${escHtml(s.adminName||s.adminUser)}</strong> · Username: <code>${escHtml(s.adminUser)}</code>
+          </div>
+          ${s.contactPhone ? `<div style="font-size:12px;color:var(--text-muted);">📞 ${escHtml(s.contactPhone)}</div>` : ''}
+          ${s.contactEmail ? `<div style="font-size:12px;color:var(--text-muted);">📧 ${escHtml(s.contactEmail)}</div>` : ''}
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Requested: ${new Date(s.requestedAt).toLocaleString('en-GH')}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <button class="btn-primary" style="flex:1;font-size:13px;padding:8px;" onclick="approveSchool('${s.schoolId}')">
+          <i class="fas fa-check"></i> Approve
+        </button>
+        <button class="btn-danger" style="flex:1;font-size:13px;padding:8px;" onclick="rejectSchool('${s.schoolId}')">
+          <i class="fas fa-times"></i> Reject
+        </button>
+      </div>
+    </div>`).join('');
+}
+
+function openSuperAdminPanel() {
+  const code = document.getElementById('superAdminCode')?.value?.trim();
+  if (code !== SUPER_ADMIN_CODE) {
+    document.getElementById('superAdminCodeError').style.display = 'block';
+    return;
+  }
+  document.getElementById('superAdminCodeRow').style.display = 'none';
+  document.getElementById('superAdminCodeError').style.display = 'none';
+  document.getElementById('superAdminPanelBody').style.display = 'block';
+  switchSATab('registrations');
+  renderPendingSchoolsList();
+}
+
+function switchSATab(tab) {
+  const tabIds  = { registrations:'saTabRegistrations', recovery:'saTabRecovery', deleteReq:'saTabDeleteReq' };
+  const bodyIds = { registrations:'saBodyRegistrations', recovery:'saBodyRecovery', deleteReq:'saBodyDeleteReq' };
+  Object.keys(tabIds).forEach(t => {
+    const tEl = document.getElementById(tabIds[t]);
+    const bEl = document.getElementById(bodyIds[t]);
+    if (tEl) tEl.classList.toggle('active', t===tab);
+    if (bEl) bEl.style.display = t===tab ? '' : 'none';
+  });
+  if (tab === 'recovery') renderRecoveryRequests();
+  if (tab === 'deleteReq') renderDeleteRequests();
+}
+
+// ── RECOVERY REQUESTS ──
+async function submitRecoveryRequest() {
+  const schoolName = document.getElementById('recSchoolName').value.trim();
+  const adminName  = document.getElementById('recAdminName').value.trim();
+  const phone      = document.getElementById('recPhone').value.trim();
+  const type       = document.getElementById('recType').value;
+  const errEl      = document.getElementById('recoveryFormError');
+  errEl.style.display = 'none';
+  if (!schoolName || !adminName || !phone) {
+    errEl.textContent = 'Please fill in all required fields.';
+    errEl.style.display = 'block';
+    return;
+  }
+  const reqId = 'rec_' + Date.now();
+  const payload = { reqId, schoolName, adminName, phone, type, requestedAt: new Date().toISOString(), status: 'pending' };
+  if (window._fbReady && _isOnline) {
+    await window._fb.set('recovery_requests/' + reqId, payload).catch(()=>{});
+  } else {
+    try { localStorage.setItem('offline_rec_' + reqId, JSON.stringify(payload)); } catch(e){}
+  }
+  document.getElementById('recoveryRequestModal').classList.remove('open');
+  ['recSchoolName','recAdminName','recPhone'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  document.getElementById('recoverySuccessModal').classList.add('open');
+}
+
+async function renderRecoveryRequests() {
+  const el = document.getElementById('recoveryRequestsList');
+  if (!el) return;
+  el.innerHTML = '<p style="text-align:center;padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading…</p>';
+  if (!window._fbReady || !_isOnline) { el.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;">Internet required.</p>'; return; }
+  try {
+    const snap = await window._fb.get('recovery_requests');
+    if (!snap.exists()) { el.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;"><i class="fas fa-check-circle" style="color:#22c55e;"></i> No recovery requests.</p>'; return; }
+    const all = Object.values(snap.val()).filter(r => r.status === 'pending');
+    if (!all.length) { el.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;"><i class="fas fa-check-circle" style="color:#22c55e;"></i> No pending recovery requests.</p>'; return; }
+    el.innerHTML = all.map(r => {
+      const typeLabel = r.type === 'username' ? 'Username' : r.type === 'password' ? 'Password' : 'Username & Password';
+      // Find the matching school in registry to show actual credentials
+      const reg = getRegistry();
+      const school = reg.find(s => s.name.toLowerCase() === r.schoolName.toLowerCase());
+      let credHtml = '';
+      if (school) {
+        const schoolData = (() => { try { return JSON.parse(localStorage.getItem(getSchoolKey(school.id)) || '{}'); } catch(e){ return {}; } })();
+        const adminUser = (schoolData.users || []).find(u => u.role === 'Admin');
+        if (adminUser) {
+          credHtml = `<div style="background:var(--blue-light);border-radius:8px;padding:10px 12px;margin-top:10px;font-size:13px;">
+            <div><i class="fas fa-user" style="color:var(--blue);"></i> Username: <strong>${escHtml(adminUser.username)}</strong></div>
+            <div style="margin-top:4px;"><i class="fas fa-lock" style="color:var(--blue);"></i> Password: <strong>${escHtml(adminUser.password)}</strong></div>
+          </div>`;
+        }
+      }
+      return `<div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px;">
+        <div style="display:flex;align-items:flex-start;gap:10px;">
+          <div style="font-size:26px;">🔑</div>
+          <div style="flex:1;">
+            <div style="font-weight:700;">${escHtml(r.schoolName)}</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Admin: <strong>${escHtml(r.adminName)}</strong> · 📞 ${escHtml(r.phone)}</div>
+            <div style="font-size:12px;color:var(--text-muted);">Request: <span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:12px;font-weight:700;">${typeLabel}</span></div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Submitted: ${new Date(r.requestedAt).toLocaleString('en-GH')}</div>
+            ${credHtml}
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button class="btn-primary" style="flex:1;font-size:13px;padding:8px;" onclick="resolveRecovery('${r.reqId}')">
+            <i class="fas fa-check"></i> Mark as Resolved
+          </button>
+          <button class="btn-ghost" style="flex:1;font-size:13px;padding:8px;" onclick="dismissRecovery('${r.reqId}')">
+            <i class="fas fa-times"></i> Dismiss
+          </button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) { el.innerHTML = '<p style="color:var(--red);text-align:center;padding:20px;">Failed to load. Check connection.</p>'; }
+}
+
+async function resolveRecovery(reqId) {
+  if (!window._fbReady || !_isOnline) return;
+  await window._fb.update('recovery_requests/' + reqId, { status: 'resolved', resolvedAt: new Date().toISOString() }).catch(()=>{});
+  showToast('✅ Recovery request marked as resolved.');
+  renderRecoveryRequests();
+}
+
+async function dismissRecovery(reqId) {
+  if (!window._fbReady || !_isOnline) return;
+  await window._fb.update('recovery_requests/' + reqId, { status: 'dismissed' }).catch(()=>{});
+  showToast('🗑️ Request dismissed.');
+  renderRecoveryRequests();
+}
+
+// ── DELETE REQUESTS (for tracking) ──
+async function renderDeleteRequests() {
+  const el = document.getElementById('deleteRequestsList');
+  if (!el) return;
+  el.innerHTML = '<p style="text-align:center;padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading…</p>';
+  if (!window._fbReady || !_isOnline) { el.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;">Internet required.</p>'; return; }
+  try {
+    const snap = await window._fb.get('archives');
+    if (!snap.exists()) { el.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;"><i class="fas fa-check-circle" style="color:#22c55e;"></i> No deleted schools in archive.</p>'; return; }
+    const now = Date.now();
+    const items = Object.values(snap.val()).filter(a => new Date(a.expiresAt).getTime() > now);
+    if (!items.length) { el.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;">No recent deletions found.</p>'; return; }
+    el.innerHTML = items.map(a => {
+      const days = Math.ceil((new Date(a.expiresAt).getTime()-now)/86400000);
+      return `<div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px;">
+        <div style="font-size:28px;">🗑️</div>
+        <div style="flex:1;">
+          <div style="font-weight:700;">${escHtml(a.schoolName)}</div>
+          <div style="font-size:12px;color:var(--text-muted);">Deleted ${new Date(a.deletedAt).toLocaleDateString('en-GH')} · <span style="color:var(--red);font-weight:600;">${days} days until permanent deletion</span></div>
+        </div>
+        <button class="btn-primary" style="font-size:12px;padding:6px 14px;" onclick="restoreSchool('${a.schoolId}')"><i class="fas fa-trash-restore"></i> Restore</button>
+      </div>`;
+    }).join('');
+  } catch(e) { el.innerHTML = '<p style="color:var(--red);text-align:center;padding:20px;">Failed to load.</p>'; }
+}
+
+// Save current school data to its own key
+function saveToDB() {
+  if (!_currentSchoolKey) return;
+  try {
+    const data = {
+      students: state.students,
+      fees: state.fees,
+      teachers: state.teachers,
+      classes: state.classes,
+      albums: state.albums.map(a=>({...a, photos:(a.photos||[]).map(p=>({name:p.name,src:p.src&&p.src.length>500000?'[photo-omitted]':p.src}))})),
+      reports: state.reports,
+      weeklyRecords: state.weeklyRecords,
+      attendance: state.attendance,
+      settings: state.settings,
+      schoolLogo: state.schoolLogo,
+      driveClientId: state.driveClientId,
+      backupHistory: state.backupHistory,
+      users: state.users,
+      admissions: state.admissions,
+      nextAdmissionId: state.nextAdmissionId,
+      nextStudentId: state.nextStudentId,
+      nextFeeId: state.nextFeeId,
+      nextTeacherId: state.nextTeacherId,
+      nextClassId: state.nextClassId,
+      nextAlbumId: state.nextAlbumId,
+      nextWeeklyId: state.nextWeeklyId,
+      nextAttendanceId: state.nextAttendanceId,
+      nextUserId: state.nextUserId,
+      expenditures: state.expenditures,
+      nextExpenditureId: state.nextExpenditureId,
+      resources: state.resources,
+      nextResourceId: state.nextResourceId,
+      exams: state.exams,
+      nextExamId: state.nextExamId,
+      transfers: state.transfers,
+      nextTransferId: state.nextTransferId,
+      announcements: state.announcements,
+      nextAnnouncementId: state.nextAnnouncementId,
+      parentNotifications: state.parentNotifications,
+      nextPNId: state.nextPNId,
+      appTheme: state.appTheme,
+      sidebarStyle: state.sidebarStyle,
+      fontSize: state.fontSize,
+    };
+    localStorage.setItem(_currentSchoolKey, JSON.stringify(data));
+    // Keep registry entry's displayName in sync
+    const reg = getRegistry();
+    const entry = reg.find(s => s.key === _currentSchoolKey);
+    if (entry) { entry.name = state.settings.schoolName; saveRegistry(reg); }
+  } catch(e) { console.warn('Save failed:', e); }
+}
+
+// Load a school's data into state
+function loadSchoolData(schoolKey) {
+  try {
+    const raw = localStorage.getItem(schoolKey);
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (data.students)      state.students      = data.students;
+    if (data.fees)          state.fees          = data.fees;
+    if (data.teachers)      state.teachers      = data.teachers;
+    if (data.classes)       state.classes       = data.classes;
+    if (data.albums)        state.albums        = data.albums;
+    if (data.reports)       state.reports       = data.reports;
+    if (data.weeklyRecords) state.weeklyRecords = data.weeklyRecords;
+    if (data.attendance)    state.attendance    = data.attendance;
+    if (data.settings)      Object.assign(state.settings, data.settings);
+    if (data.schoolLogo)    state.schoolLogo    = data.schoolLogo;
+    if (data.driveClientId) state.driveClientId = data.driveClientId;
+    if (data.backupHistory) state.backupHistory = data.backupHistory;
+    if (data.users)         state.users         = data.users;
+    if (data.expenditures)  state.expenditures  = data.expenditures;
+    if (data.resources)     state.resources     = data.resources;
+    if (data.nextResourceId) state.nextResourceId = data.nextResourceId;
+    if (data.exams)              state.exams              = data.exams;
+    if (data.nextExamId)         state.nextExamId         = data.nextExamId;
+    if (data.transfers)          state.transfers          = data.transfers;
+    if (data.nextTransferId)     state.nextTransferId     = data.nextTransferId;
+    if (data.announcements)      state.announcements      = data.announcements;
+    if (data.nextAnnouncementId) state.nextAnnouncementId = data.nextAnnouncementId;
+    if (data.parentNotifications) state.parentNotifications = data.parentNotifications;
+    if (data.nextPNId)           state.nextPNId           = data.nextPNId;
+    if (data.appTheme)      state.appTheme      = data.appTheme;
+    if (data.sidebarStyle)  state.sidebarStyle  = data.sidebarStyle;
+    if (data.fontSize)      state.fontSize      = data.fontSize;
+    if (data.admissions)  state.admissions  = data.admissions;
+    if (data.nextAdmissionId) state.nextAdmissionId = data.nextAdmissionId;
+    if (data.nextStudentId)    state.nextStudentId    = data.nextStudentId;
+    if (data.nextFeeId)        state.nextFeeId        = data.nextFeeId;
+    if (data.nextTeacherId)    state.nextTeacherId    = data.nextTeacherId;
+    if (data.nextClassId)      state.nextClassId      = data.nextClassId;
+    if (data.nextAlbumId)      state.nextAlbumId      = data.nextAlbumId;
+    if (data.nextWeeklyId)     state.nextWeeklyId     = data.nextWeeklyId;
+    if (data.nextAttendanceId) state.nextAttendanceId = data.nextAttendanceId;
+    if (data.nextUserId)       state.nextUserId       = data.nextUserId;
+    if (data.nextExpenditureId) state.nextExpenditureId = data.nextExpenditureId;
+    return true;
+  } catch(e) { console.warn('Load failed:', e); return false; }
 }
 
 // Legacy single-school migration
@@ -639,13 +850,15 @@ function initNav() {
       switchSection(sec);
       document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
       item.classList.add('active');
-      if (typeof _paintSidebar === 'function') _paintSidebar();
       closeSidebar();
     });
   });
 }
 
 function switchSection(name) {
+  // RBAC GUARD — verify access before showing any section
+  if (state.currentUser && !guardSection(name)) return;
+
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   const t = document.getElementById('sec-' + name);
   if (t) t.classList.add('active');
@@ -2763,284 +2976,198 @@ async function saveToDrive() {
 }
 
 // ── ATTENDANCE REGISTER ──
-function updateAttClassSize() {
-  const cls = document.getElementById('attClassSelect')?.value || '';
-  const bar = document.getElementById('attClassSizeBar');
-  const lbl = document.getElementById('attClassSizeLabel');
-  if (!cls || !bar || !lbl) return;
-  const count = state.students.filter(s => s.cls === cls).length;
-  bar.style.display = count ? '' : 'none';
-  lbl.textContent = count + ' pupil' + (count !== 1 ? 's' : '') + ' enrolled in ' + cls;
-}
-
-function renderAttendance(cls, week, day) {
-  cls = cls || ''; week = week || ''; day = day || '';
+function renderAttendance(cls='', week='') {
   const tbody = document.getElementById('attendanceTbody');
-  if (!tbody) return;
-  let data = state.attendance || [];
-  if (cls)  data = data.filter(a => a.cls  === cls);
-  if (week) data = data.filter(a => a.week === week);
-  if (day)  data = data.filter(a => (a.day||'')  === day);
-
+  let data = state.attendance;
+  if (cls) data = data.filter(a=>a.cls===cls);
+  if (week) data = data.filter(a=>a.week===week);
   if (!data.length) {
-    tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--text-light);padding:28px;"><i class="fas fa-clipboard-check" style="font-size:28px;display:block;margin-bottom:10px;"></i>No attendance records yet.</td></tr>';
+    tbody.innerHTML=`<tr><td colspan="11" style="text-align:center;color:var(--text-light);padding:28px;">No attendance records. Select a class and mark attendance below.</td></tr>`;
     return;
   }
+  // Group by week+class
   const grouped = {};
-  data.forEach(a => {
-    const key = a.cls + '|' + a.week + '|' + (a.day||'');
-    if (!grouped[key]) grouped[key] = { cls:a.cls, week:a.week, day:a.day||'', records:[] };
+  data.forEach(a=>{
+    const key = `${a.cls}|${a.week}`;
+    if (!grouped[key]) grouped[key] = { cls:a.cls, week:a.week, records:[] };
     grouped[key].records.push(a);
   });
-  const DAY_ORDER = ['Monday','Tuesday','Wednesday','Thursday','Friday'];
-  const weekNum = w => parseInt((w||'').replace(/\D/g,'')) || 99;
-  const sortedGroups = Object.values(grouped).sort((a,b) => {
-    const wDiff = weekNum(a.week) - weekNum(b.week);
-    if (wDiff !== 0) return wDiff;
-    return DAY_ORDER.indexOf(a.day) - DAY_ORDER.indexOf(b.day);
-  });
-  tbody.innerHTML = sortedGroups.map((g, i) => {
-    const classPupils    = state.students.filter(s => s.cls === g.cls);
-    const totalEnrolled  = classPupils.length;
-    const maleEnrolled   = classPupils.filter(s => s.gender === 'Male').length;
+
+  tbody.innerHTML = Object.values(grouped).map((g,i)=>{
+    const present = g.records.filter(r=>r.status==='Present').length;
+    const absent  = g.records.filter(r=>r.status==='Absent').length;
+    const late    = g.records.filter(r=>r.status==='Late').length;
+
+    // Cross-reference enrolled pupils in this class for gender breakdown
+    const classPupils = state.students.filter(s => s.cls === g.cls);
+    const totalEnrolled = classPupils.length;
+    const maleEnrolled  = classPupils.filter(s => s.gender === 'Male').length;
     const femaleEnrolled = classPupils.filter(s => s.gender === 'Female').length;
-    const present    = g.records.filter(r => r.status === 'Present').length;
-    const absent     = g.records.filter(r => r.status === 'Absent').length;
-    const late       = g.records.filter(r => r.status === 'Late').length;
-    const presentIds = g.records.filter(r => r.status === 'Present').map(r => r.studentId);
-    const malesP     = classPupils.filter(s => presentIds.includes(s.id) && s.gender === 'Male').length;
-    const femalesP   = classPupils.filter(s => presentIds.includes(s.id) && s.gender === 'Female').length;
-    const marked     = g.records.length;
-    const rate       = marked ? Math.round((present / marked) * 100) : 0;
-    const rateColor  = rate >= 80 ? 'var(--green)' : rate >= 60 ? 'var(--yellow)' : 'var(--red)';
-    const clsEnc  = encodeURIComponent(g.cls);
-    const weekEnc = encodeURIComponent(g.week);
-    const dayEnc  = encodeURIComponent(g.day);
-    return '<tr>' +
-      '<td>' + (i+1) + '</td>' +
-      '<td><strong>' + g.cls + '</strong><br><small style="color:var(--text-muted);font-size:11px;">' + totalEnrolled + ' enrolled</small></td>' +
-      '<td>' + g.week + '</td>' +
-      '<td style="font-weight:600;">' + (g.day||'—') + '</td>' +
-      '<td style="font-weight:700;">' + totalEnrolled + '</td>' +
-      '<td style="color:#3b82f6;font-weight:600;">' + maleEnrolled + '<br><small>' + malesP + '\u2705</small></td>' +
-      '<td style="color:#ec4899;font-weight:600;">' + femaleEnrolled + '<br><small>' + femalesP + '\u2705</small></td>' +
-      '<td style="color:var(--green);font-weight:700;">' + present + '</td>' +
-      '<td style="color:var(--red);font-weight:700;">' + absent + '</td>' +
-      '<td style="color:var(--yellow);font-weight:700;">' + late + '</td>' +
-      '<td><div style="display:flex;align-items:center;gap:6px;">' +
-        '<div style="flex:1;background:var(--border);border-radius:20px;height:6px;min-width:50px;">' +
-          '<div style="width:' + rate + '%;background:' + rateColor + ';height:6px;border-radius:20px;"></div></div>' +
-        '<span style="font-weight:700;color:' + rateColor + ';font-size:12px;">' + rate + '%</span></div></td>' +
-      '<td>' +
-        '<button class="tbl-btn" onclick="editAttendanceSheet(\'' + clsEnc + '\',\'' + weekEnc + '\',\'' + dayEnc + '\')" title="Edit"><i class="fas fa-edit"></i></button>' +
-        '<button class="tbl-btn" onclick="printAttendanceSummary(\'' + clsEnc + '\',\'' + weekEnc + '\',\'' + dayEnc + '\')" title="Print"><i class="fas fa-print"></i></button>' +
-        '<button class="tbl-btn danger" onclick="deleteAttendanceRecord(\'' + clsEnc + '\',\'' + weekEnc + '\',\'' + dayEnc + '\')" title="Delete"><i class="fas fa-trash"></i></button>' +
-      '</td>' +
-    '</tr>';
+
+    // Gender-split of present pupils
+    const presentIds = g.records.filter(r=>r.status==='Present').map(r=>r.studentId);
+    const malesPresent   = classPupils.filter(s => presentIds.includes(s.id) && s.gender === 'Male').length;
+    const femalesPresent = classPupils.filter(s => presentIds.includes(s.id) && s.gender === 'Female').length;
+
+    const totalMarked = g.records.length;
+    const rate = totalMarked ? Math.round((present / totalMarked) * 100) : 0;
+    const rateColor = rate >= 80 ? 'var(--green)' : rate >= 60 ? 'var(--yellow)' : 'var(--red)';
+
+    return `<tr>
+      <td>${i+1}</td>
+      <td><strong>${g.cls}</strong><br><small style="color:var(--text-muted);">${totalEnrolled} enrolled</small></td>
+      <td>${g.week}</td>
+      <td style="font-weight:600;">${totalMarked}</td>
+      <td style="color:#3b82f6;font-weight:600;">${maleEnrolled}<br><small style="font-weight:400;color:var(--text-muted);">${malesPresent} present</small></td>
+      <td style="color:#ec4899;font-weight:600;">${femaleEnrolled}<br><small style="font-weight:400;color:var(--text-muted);">${femalesPresent} present</small></td>
+      <td style="color:var(--green);font-weight:600;">${present}</td>
+      <td style="color:var(--red);font-weight:600;">${absent}</td>
+      <td style="color:var(--yellow);font-weight:600;">${late}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div style="flex:1;background:var(--border);border-radius:20px;height:6px;min-width:50px;"><div style="width:${rate}%;background:${rateColor};height:6px;border-radius:20px;transition:width .5s;"></div></div>
+          <span style="font-weight:700;color:${rateColor};font-size:12px;">${rate}%</span>
+        </div>
+      </td>
+      <td>
+        <button class="tbl-btn" onclick="printAttendanceSummary('${g.cls}','${g.week.replace(/'/g,"\'")}')" title="Print Summary"><i class="fas fa-print"></i></button>
+      </td>
+    </tr>`;
   }).join('');
 }
 
-function editAttendanceSheet(clsEnc, weekEnc, dayEnc) {
-  const cls  = decodeURIComponent(clsEnc);
-  const week = decodeURIComponent(weekEnc);
-  const day  = decodeURIComponent(dayEnc);
-  const attCls  = document.getElementById('attClassSelect');
-  const attWeek = document.getElementById('attWeek');
-  const attDay  = document.getElementById('attDay');
-  if (attCls)  attCls.value  = cls;
-  if (attWeek) attWeek.value = week;
-  if (attDay)  attDay.value  = day;
-  updateAttClassSize();
-  document.getElementById('sec-attendance').scrollIntoView({ behavior:'smooth' });
-  renderAttendanceSheet();
-}
-
-function deleteAttendanceRecord(clsEnc, weekEnc, dayEnc) {
-  const cls  = decodeURIComponent(clsEnc);
-  const week = decodeURIComponent(weekEnc);
-  const day  = decodeURIComponent(dayEnc);
-  if (!confirm('Delete attendance for ' + cls + ' \u2014 ' + week + ' ' + day + '?')) return;
-  state.attendance = state.attendance.filter(a => !(a.cls===cls && a.week===week && (a.day||'')===(day||'')));
-  renderAttendance(); autosave(); showToast('\uD83D\uDDD1\uFE0F Attendance record deleted.');
-}
-
-function downloadAttendanceCSV() {
-  let csv = 'Class,Week,Day,Pupil,Gender,Status\n';
-  (state.attendance||[]).forEach(a => {
-    const p = state.students.find(s => s.id === a.studentId);
-    const name = p ? p.first + ' ' + p.last : 'Pupil#' + a.studentId;
-    const gender = p ? p.gender : '—';
-    csv += '"' + a.cls + '","' + a.week + '","' + (a.day||'') + '","' + name + '","' + gender + '","' + a.status + '"\n';
-  });
-  const url = URL.createObjectURL(new Blob([csv], { type:'text/csv' }));
-  const el = Object.assign(document.createElement('a'), { href:url, download:'attendance.csv' });
-  document.body.appendChild(el); el.click(); document.body.removeChild(el);
-  showToast('\uD83D\uDCE5 Attendance exported!');
-}
-
-function printAttendanceSummary(clsEnc, weekEnc, dayEnc) {
-  const cls  = decodeURIComponent(clsEnc);
-  const week = decodeURIComponent(weekEnc);
-  const day  = decodeURIComponent(dayEnc);
-  const records = state.attendance.filter(a => a.cls===cls && a.week===week && (a.day||'')===(day||''));
+function printAttendanceSummary(cls, week) {
+  const records = state.attendance.filter(a => a.cls === cls && a.week === week);
   if (!records.length) { showToast('No records for this entry.'); return; }
-  const classPupils    = state.students.filter(s => s.cls === cls);
-  const totalEnrolled  = classPupils.length;
-  const school         = state.settings;
-  const present        = records.filter(r => r.status==='Present').length;
-  const absent         = records.filter(r => r.status==='Absent').length;
-  const late           = records.filter(r => r.status==='Late').length;
-  const total          = records.length;
-  const rate           = total ? Math.round(present/total*100) : 0;
-  const maleEnrolled   = classPupils.filter(s => s.gender==='Male').length;
-  const femaleEnrolled = classPupils.filter(s => s.gender==='Female').length;
-  const presentIds     = records.filter(r => r.status==='Present').map(r => r.studentId);
-  const malesP         = classPupils.filter(s => presentIds.includes(s.id) && s.gender==='Male').length;
-  const femalesP       = classPupils.filter(s => presentIds.includes(s.id) && s.gender==='Female').length;
-  const logoHtml       = state.schoolLogo ? '<img src="' + state.schoolLogo + '" style="height:65px;object-fit:contain;"/>' : '\uD83C\uDFEB';
-  const rateCol        = rate>=80 ? '#16a34a' : rate>=60 ? '#d97706' : '#dc2626';
-  const allRows = classPupils.map((p,i) => {
-    const rec = records.find(r => r.studentId === p.id);
-    const status = rec ? rec.status : '\u2014';
-    const sc = status==='Present' ? 'color:#16a34a;font-weight:700;' : status==='Absent' ? 'color:#dc2626;font-weight:700;' : status==='Late' ? 'color:#d97706;font-weight:700;' : '';
-    return '<tr><td>' + (i+1) + '</td><td>' + p.first + ' ' + p.last + '</td><td>' + (p.gender||'—') + '</td><td style="' + sc + '">' + status + '</td><td></td></tr>';
-  }).join('');
+  const classPupils = state.students.filter(s => s.cls === cls);
+  const school = state.settings;
+  const present = records.filter(r=>r.status==='Present').length;
+  const absent  = records.filter(r=>r.status==='Absent').length;
+  const late    = records.filter(r=>r.status==='Late').length;
+  const total   = records.length;
+  const rate    = total ? Math.round(present/total*100) : 0;
+  const maleEnrolled   = classPupils.filter(s=>s.gender==='Male').length;
+  const femaleEnrolled = classPupils.filter(s=>s.gender==='Female').length;
+  const presentIds     = records.filter(r=>r.status==='Present').map(r=>r.studentId);
+  const malesPresent   = classPupils.filter(s=>presentIds.includes(s.id)&&s.gender==='Male').length;
+  const femalesPresent = classPupils.filter(s=>presentIds.includes(s.id)&&s.gender==='Female').length;
+
+  const logoHtml = state.schoolLogo ? `<img src="${state.schoolLogo}" style="height:65px;object-fit:contain;"/>` : '🏫';
   const win = window.open('','_blank');
-  win.document.write('<!DOCTYPE html><html><head><title>Attendance</title><style>' +
-    'body{font-family:"Segoe UI",Arial,sans-serif;padding:28px;max-width:720px;margin:auto;color:#1a2133;}' +
-    '.header{display:flex;align-items:center;gap:16px;border-bottom:3px solid #1a6fd4;padding-bottom:16px;margin-bottom:20px;}' +
-    '.school-name{font-size:20px;font-weight:800;color:#1a6fd4;}.sub{font-size:12px;color:#64748b;}' +
-    '.title{font-size:15px;font-weight:700;margin-bottom:16px;background:#e8f0fe;padding:10px 16px;border-radius:8px;color:#1a6fd4;}' +
-    '.stat-row{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:18px;}' +
-    '.stat{background:#f8fafc;border-radius:8px;padding:10px;text-align:center;border:1px solid #e2e8f0;}' +
-    '.stat-val{font-size:20px;font-weight:800;}.stat-lbl{font-size:10px;color:#64748b;margin-top:2px;}' +
-    'table{width:100%;border-collapse:collapse;}th{background:#1a6fd4;color:#fff;padding:8px 10px;font-size:12px;text-align:left;}' +
-    'td{padding:7px 10px;border-bottom:1px solid #eee;font-size:12px;}' +
-    '.sig{display:flex;justify-content:space-between;margin-top:40px;}' +
-    '.sig-box{text-align:center;width:180px;}.sig-line{border-top:1px solid #333;padding-top:5px;font-size:11px;color:#555;}' +
-    '.footer{margin-top:20px;padding-top:12px;border-top:1px solid #eee;font-size:11px;color:#94a3b8;text-align:center;}' +
-    '</style></head><body>' +
-    '<div class="header">' + logoHtml + '<div>' +
-      '<div class="school-name">' + (school.schoolName||'School') + '</div>' +
-      '<div class="sub">' + (school.address||'') + ' | ' + (school.district||'') + '</div>' +
-      '<div class="sub">Headmaster: ' + (school.principal||'') + ' | ' + (school.session||'') + '</div>' +
-    '</div></div>' +
-    '<div class="title">\uD83D\uDCCB Attendance Register \u2014 <strong>' + cls + '</strong> | <strong>' + week + '</strong> | <strong>' + day + '</strong></div>' +
-    '<div class="stat-row">' +
-      '<div class="stat"><div class="stat-val">' + totalEnrolled + '</div><div class="stat-lbl">Class Size</div></div>' +
-      '<div class="stat"><div class="stat-val">' + total + '</div><div class="stat-lbl">Marked</div></div>' +
-      '<div class="stat"><div class="stat-val" style="color:#16a34a;">' + present + '</div><div class="stat-lbl">Present</div></div>' +
-      '<div class="stat"><div class="stat-val" style="color:#dc2626;">' + absent + '</div><div class="stat-lbl">Absent</div></div>' +
-      '<div class="stat"><div class="stat-val" style="color:#d97706;">' + late + '</div><div class="stat-lbl">Late</div></div>' +
-    '</div>' +
-    '<div style="margin-bottom:10px;font-size:13px;">Rate: <strong>' + rate + '%</strong> &nbsp;|&nbsp; Males: ' + maleEnrolled + ' enrolled, ' + malesP + ' present &nbsp;|&nbsp; Females: ' + femaleEnrolled + ' enrolled, ' + femalesP + ' present</div>' +
-    '<table><thead><tr><th>#</th><th>Pupil Name</th><th>Gender</th><th>Status</th><th>Remarks</th></tr></thead>' +
-    '<tbody>' + allRows + '</tbody></table>' +
-    '<div class="sig"><div class="sig-box"><div class="sig-line">Class Teacher</div></div><div class="sig-box"><div class="sig-line">Headmaster</div></div><div class="sig-box"><div class="sig-line">Date</div></div></div>' +
-    '<div class="footer">EduManage Pro \u2014 ' + (school.schoolName||'School') + ' \u2014 Printed ' + new Date().toLocaleString('en-GH') + '</div>' +
-    '<script>window.onload=function(){window.print();}<\/script></body></html>');
+  win.document.write(`<!DOCTYPE html><html><head><title>Attendance — ${cls} ${week}</title><style>
+    body{font-family:'Segoe UI',Arial,sans-serif;padding:28px;max-width:720px;margin:auto;color:#1a2133;}
+    .header{display:flex;align-items:center;gap:16px;border-bottom:3px solid #1a6fd4;padding-bottom:16px;margin-bottom:20px;}
+    .school-name{font-size:20px;font-weight:800;color:#1a6fd4;}
+    .sub{font-size:12px;color:#64748b;}
+    .title{font-size:16px;font-weight:700;margin-bottom:16px;background:#e8f0fe;padding:10px 16px;border-radius:8px;color:#1a6fd4;}
+    .stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;}
+    .stat{background:#f8fafc;border-radius:8px;padding:12px;text-align:center;border:1px solid #e2e8f0;}
+    .stat-val{font-size:22px;font-weight:800;}
+    .stat-lbl{font-size:11px;color:#64748b;margin-top:2px;}
+    .gender-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;}
+    .gender-box{border-radius:8px;padding:12px;}
+    table{width:100%;border-collapse:collapse;}
+    th{background:#1a6fd4;color:#fff;padding:8px 10px;font-size:12px;text-align:left;}
+    td{padding:7px 10px;border-bottom:1px solid #eee;font-size:12px;}
+    .status-p{color:#16a34a;font-weight:600;} .status-a{color:#dc2626;font-weight:600;} .status-l{color:#d97706;font-weight:600;}
+    .rate-bar{background:#e2e8f0;border-radius:20px;height:8px;margin-top:4px;}
+    .rate-fill{background:#16a34a;height:8px;border-radius:20px;}
+    .footer{margin-top:24px;padding-top:14px;border-top:1px solid #eee;font-size:11px;color:#94a3b8;text-align:center;}
+    .sig{display:flex;justify-content:space-between;margin-top:32px;}
+    .sig-box{text-align:center;width:180px;}
+    .sig-line{border-top:1px solid #333;padding-top:5px;font-size:11px;color:#555;}
+  </style></head><body>
+  <div class="header">${logoHtml}<div>
+    <div class="school-name">${school.schoolName||'School'}</div>
+    <div class="sub">${school.address||''} &nbsp;|&nbsp; ${school.district||''}</div>
+    <div class="sub">Principal: ${school.principal||''}</div>
+  </div></div>
+  <div class="title">📋 Attendance Summary — Class: <strong>${cls}</strong> &nbsp;|&nbsp; Week: <strong>${week}</strong></div>
+  <div class="stat-row">
+    <div class="stat"><div class="stat-val">${classPupils.length}</div><div class="stat-lbl">Class Size</div></div>
+    <div class="stat"><div class="stat-val" style="color:#16a34a;">${present}</div><div class="stat-lbl">Present</div></div>
+    <div class="stat"><div class="stat-val" style="color:#dc2626;">${absent}</div><div class="stat-lbl">Absent</div></div>
+    <div class="stat"><div class="stat-val" style="color:#d97706;">${late}</div><div class="stat-lbl">Late</div></div>
+  </div>
+  <div class="gender-row">
+    <div class="gender-box" style="background:#eff6ff;border:1px solid #bfdbfe;">
+      <div style="font-weight:700;color:#3b82f6;margin-bottom:6px;">👦 Males</div>
+      <div style="font-size:13px;">Enrolled: <strong>${maleEnrolled}</strong> &nbsp;·&nbsp; Present: <strong>${malesPresent}</strong> &nbsp;·&nbsp; Absent: <strong>${maleEnrolled-malesPresent}</strong></div>
+    </div>
+    <div class="gender-box" style="background:#fdf2f8;border:1px solid #f9a8d4;">
+      <div style="font-weight:700;color:#ec4899;margin-bottom:6px;">👧 Females</div>
+      <div style="font-size:13px;">Enrolled: <strong>${femaleEnrolled}</strong> &nbsp;·&nbsp; Present: <strong>${femalesPresent}</strong> &nbsp;·&nbsp; Absent: <strong>${femaleEnrolled-femalesPresent}</strong></div>
+    </div>
+  </div>
+  <div style="margin-bottom:16px;font-size:13px;">Attendance Rate: <strong>${rate}%</strong>
+    <div class="rate-bar"><div class="rate-fill" style="width:${rate}%;"></div></div>
+  </div>
+  <table>
+    <thead><tr><th>#</th><th>Pupil Name</th><th>Gender</th><th>Status</th></tr></thead>
+    <tbody>${records.map((r,i)=>{
+      const p = state.students.find(s=>s.id===r.studentId);
+      const name = p ? `${p.first} ${p.last}` : `Pupil #${r.studentId}`;
+      const gender = p ? p.gender : '—';
+      const cls2 = r.status==='Present'?'status-p':r.status==='Absent'?'status-a':'status-l';
+      return `<tr><td>${i+1}</td><td>${name}</td><td>${gender}</td><td class="${cls2}">${r.status}</td></tr>`;
+    }).join('')}</tbody>
+  </table>
+  <div class="sig">
+    <div class="sig-box"><div class="sig-line">Class Teacher</div></div>
+    <div class="sig-box"><div class="sig-line">Headmaster</div></div>
+    <div class="sig-box"><div class="sig-line">Date</div></div>
+  </div>
+  <div class="footer">EduManage Pro — ${school.schoolName||'School'} — Printed ${new Date().toLocaleString('en-GH')}</div>
+  <script>window.onload=function(){window.print();}<\/script></body></html>`);
   win.document.close();
 }
 
 function renderAttendanceSheet() {
-  const cls  = document.getElementById('attClassSelect').value;
-  const week = document.getElementById('attWeek').value;
-  const day  = document.getElementById('attDay').value;
-  if (!cls)  { showToast('\u26A0\uFE0F Select a class.'); return; }
-  if (!week) { showToast('\u26A0\uFE0F Select a week.'); return; }
-  if (!day)  { showToast('\u26A0\uFE0F Select a day.'); return; }
-  const pupils = state.students.filter(s => s.cls === cls);
-  if (!pupils.length) { showToast('\u26A0\uFE0F No pupils enrolled in this class.'); return; }
+  const cls = document.getElementById('attClassSelect').value;
+  const week = document.getElementById('attWeek').value.trim();
+  if (!cls||!week) { showToast('⚠️ Select a class and enter the week.'); return; }
+  const pupils = state.students.filter(s=>s.cls===cls);
+  if (!pupils.length) { showToast('⚠️ No pupils in this class.'); return; }
   const sheet = document.getElementById('attendanceSheet');
-  const totalEnrolled = pupils.length;
-  const maleCount   = pupils.filter(p => p.gender==='Male').length;
-  const femaleCount = pupils.filter(p => p.gender==='Female').length;
-  const rowsHtml = pupils.map(p => {
-    const existing = state.attendance.find(a => a.studentId===p.id && a.week===week && a.cls===cls && (a.day||'')===(day||''));
-    const status   = existing ? existing.status : 'Present';
-    return '<div class="att-row" id="att-row-' + p.id + '">' +
-      '<span class="att-name">' + p.first + ' ' + p.last + ' <small style="color:var(--text-muted);font-size:10px;">' + (p.gender||'') + '</small></span>' +
-      '<div class="att-btns">' +
-        '<button class="att-btn ' + (status==='Present'?'att-present':'') + '" onclick="setAttendance(' + p.id + ',\'' + cls + '\',\'' + week + '\',\'' + day + '\',\'Present\',this)">P</button>' +
-        '<button class="att-btn ' + (status==='Absent'?'att-absent':'') + '" onclick="setAttendance(' + p.id + ',\'' + cls + '\',\'' + week + '\',\'' + day + '\',\'Absent\',this)">A</button>' +
-        '<button class="att-btn ' + (status==='Late'?'att-late':'') + '" onclick="setAttendance(' + p.id + ',\'' + cls + '\',\'' + week + '\',\'' + day + '\',\'Late\',this)">L</button>' +
-      '</div>' +
-    '</div>';
-  }).join('');
-  sheet.innerHTML =
-    '<div style="background:var(--blue-light);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;">' +
-      '<strong style="color:var(--blue);">' + cls + ' \u2014 ' + week + ' \u2014 ' + day + '</strong>' +
-      '<span style="margin-left:12px;color:var(--text-muted);">' + totalEnrolled + ' pupils (' + maleCount + 'M / ' + femaleCount + 'F)</span>' +
-    '</div>' +
-    '<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">' +
-      '<button class="btn-ghost" style="font-size:12px;" onclick="markAllAttendance(\'' + cls + '\',\'' + week + '\',\'' + day + '\',\'Present\')"><i class="fas fa-check-circle" style="color:var(--green);"></i> Mark All Present</button>' +
-      '<button class="btn-ghost" style="font-size:12px;" onclick="markAllAttendance(\'' + cls + '\',\'' + week + '\',\'' + day + '\',\'Absent\')"><i class="fas fa-times-circle" style="color:var(--red);"></i> Mark All Absent</button>' +
-    '</div>' +
-    '<div class="att-sheet-grid">' + rowsHtml + '</div>' +
-    '<div style="display:flex;gap:10px;margin-top:14px;">' +
-      '<button class="btn-primary" style="flex:1;justify-content:center;" onclick="saveAttendance(\'' + cls + '\',\'' + week + '\',\'' + day + '\')"><i class="fas fa-save"></i> Save Attendance</button>' +
-      '<button class="btn-ghost" onclick="printAttendanceSummary(\'' + encodeURIComponent(cls) + '\',\'' + encodeURIComponent(week) + '\',\'' + encodeURIComponent(day) + '\')"><i class="fas fa-print"></i> Print</button>' +
-    '</div>';
-  sheet.style.display = 'block';
+  sheet.innerHTML = `
+    <p style="font-weight:700;margin-bottom:10px;color:var(--blue);">${cls} — ${week}</p>
+    <div class="att-sheet-grid">
+      ${pupils.map(p=>{
+        const existing = state.attendance.find(a=>a.studentId===p.id&&a.week===week&&a.cls===cls);
+        const status = existing ? existing.status : 'Present';
+        return `<div class="att-row">
+          <span class="att-name">${p.first} ${p.last}</span>
+          <div class="att-btns">
+            <button class="att-btn ${status==='Present'?'att-present':''}" onclick="setAttendance(${p.id},'${cls}','${week}','Present',this)">P</button>
+            <button class="att-btn ${status==='Absent'?'att-absent':''}" onclick="setAttendance(${p.id},'${cls}','${week}','Absent',this)">A</button>
+            <button class="att-btn ${status==='Late'?'att-late':''}" onclick="setAttendance(${p.id},'${cls}','${week}','Late',this)">L</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    <button class="btn-primary" style="margin-top:14px;width:100%;" onclick="saveAttendance('${cls}','${week}')"><i class="fas fa-save"></i> Save Attendance</button>
+  `;
+  sheet.style.display='block';
 }
 
-function markAllAttendance(cls, week, day, status) {
-  const pupils = state.students.filter(s => s.cls === cls);
-  pupils.forEach(p => {
-    const existing = state.attendance.find(a => a.studentId===p.id && a.week===week && a.cls===cls && (a.day||'')===(day||''));
-    if (existing) existing.status = status;
-    else state.attendance.push({ id:state.nextAttendanceId++, studentId:p.id, cls, week, day, status });
-    const row = document.getElementById('att-row-' + p.id);
-    if (!row) return;
-    row.querySelectorAll('.att-btn').forEach(b => b.classList.remove('att-present','att-absent','att-late'));
-    const btns = row.querySelectorAll('.att-btn');
-    const idx = status==='Present'?0:status==='Absent'?1:2;
-    if (btns[idx]) btns[idx].classList.add(status==='Present'?'att-present':status==='Absent'?'att-absent':'att-late');
-  });
-  showToast('\u2705 All marked ' + status);
-}
-
-function setAttendance(studentId, cls, week, day, status, btn) {
-  const existing = state.attendance.find(a => a.studentId===studentId && a.week===week && a.cls===cls && (a.day||'')===(day||''));
+function setAttendance(studentId, cls, week, status, btn) {
+  const existing = state.attendance.find(a=>a.studentId===studentId&&a.week===week&&a.cls===cls);
   if (existing) existing.status = status;
-  else state.attendance.push({ id:state.nextAttendanceId++, studentId, cls, week, day, status });
+  else state.attendance.push({ id:state.nextAttendanceId++, studentId, cls, week, status });
+  // Update button highlights
   const row = btn.closest('.att-row');
-  row.querySelectorAll('.att-btn').forEach(b => b.classList.remove('att-present','att-absent','att-late'));
+  row.querySelectorAll('.att-btn').forEach(b=>b.classList.remove('att-present','att-absent','att-late'));
   btn.classList.add(status==='Present'?'att-present':status==='Absent'?'att-absent':'att-late');
 }
 
-function saveAttendance(cls, week, day) {
-  // Flush every pupil row's current button state into state.attendance
-  const pupils = state.students.filter(s => s.cls === cls);
-  pupils.forEach(p => {
-    const row = document.getElementById('att-row-' + p.id);
-    let status = 'Present'; // default
-    if (row) {
-      const btns = row.querySelectorAll('.att-btn');
-      if (btns[1] && btns[1].classList.contains('att-absent')) status = 'Absent';
-      else if (btns[2] && btns[2].classList.contains('att-late'))   status = 'Late';
-      else if (btns[0] && btns[0].classList.contains('att-present')) status = 'Present';
-    }
-    const existing = state.attendance.find(a => a.studentId===p.id && a.week===week && a.cls===cls && (a.day||'')===(day||''));
-    if (existing) existing.status = status;
-    else state.attendance.push({ id: state.nextAttendanceId++, studentId: p.id, cls, week, day, status });
-  });
-
-  autosave();
-
-  // Refresh the summary table with current filter values (or show all)
-  const fc = document.getElementById('attFilterClass');
-  const fw = document.getElementById('attFilterWeek');
-  const fd = document.getElementById('attFilterDay');
-  renderAttendance(fc?.value || '', fw?.value || '', fd?.value || '');
-  updateDashStats();
-  showToast('✅ Attendance saved — ' + cls + ' · ' + week + ' · ' + day + ' (' + pupils.length + ' pupils)');
+function saveAttendance(cls, week) {
+  autosave(); renderAttendance(cls); updateDashStats(); showToast('✅ Attendance saved!');
 }
 
 function initAttendance() {
   renderAttendance();
   document.getElementById('attLoadBtn').addEventListener('click', renderAttendanceSheet);
-  document.getElementById('attClassSelect').addEventListener('change', updateAttClassSize);
+  document.getElementById('attClassSelect').addEventListener('change', function(){ renderAttendance(this.value); });
 }
 
 // ── STUDENT PROMOTION ──
@@ -3906,15 +4033,11 @@ function showSchoolSelector() {
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('schoolSelector').style.display = 'flex';
   stopRealtimeSync();
-  // Show local registry immediately (fast), then refresh from Firebase in background
-  renderSchoolList();
+  // Load registry from Firebase first (gets schools registered on other devices)
   if (window._fbReady && _isOnline) {
-    loadRegistryFromFirebase().then(() => renderSchoolList()).catch(() => {});
+    loadRegistryFromFirebase().then(() => renderSchoolList());
   } else {
-    // Wait for Firebase to be ready (fires when SDK module loads)
-    document.addEventListener('firebase-ready', () => {
-      loadRegistryFromFirebase().then(() => renderSchoolList()).catch(() => {});
-    }, { once: true });
+    renderSchoolList();
   }
 }
 
@@ -3934,286 +4057,210 @@ function showApp() {
 }
 
 // ── SCHOOL SELECTOR ──
-// ── MASTER PIN ──
-const DEFAULT_MASTER_PIN = 'EduManage2024';
-
-function getMasterPin() {
-  try { return localStorage.getItem('edumanage_master_pin') || DEFAULT_MASTER_PIN; } catch(e) { return DEFAULT_MASTER_PIN; }
-}
-
-function changeMasterPin() {
-  const newPin = document.getElementById('masterPinSetting')?.value.trim();
-  if (!newPin || newPin.length < 4) { showToast('⚠️ PIN must be at least 4 characters.'); return; }
-  localStorage.setItem('edumanage_master_pin', newPin);
-  // Also save to Firebase so all devices share the same PIN
-  if (window._fbReady && _isOnline) {
-    window._fb.set('masterPin', newPin).catch(()=>{});
-  }
-  document.getElementById('masterPinSetting').value = '';
-  showToast('🔐 Master PIN updated successfully!');
-}
-
-// Load master PIN from Firebase on startup
-async function syncMasterPin() {
-  if (!window._fbReady || !_isOnline) return;
-  try {
-    const snap = await window._fb.get('masterPin');
-    if (snap.exists()) localStorage.setItem('edumanage_master_pin', snap.val());
-  } catch(e) {}
-}
-
-let _pinCallback = null; // function to call after PIN verified
-
-function requireMasterPin(title, desc, onSuccess) {
-  _pinCallback = onSuccess;
-  document.getElementById('masterPinTitle').innerHTML = `<i class="fas fa-lock"></i> ${title}`;
-  document.getElementById('masterPinDesc').textContent = desc;
-  document.getElementById('masterPinInput').value = '';
-  document.getElementById('masterPinError').style.display = 'none';
-  document.getElementById('masterPinModal').classList.add('open');
-  setTimeout(() => document.getElementById('masterPinInput').focus(), 100);
-}
-
-function verifyMasterPin() {
-  const entered = document.getElementById('masterPinInput').value;
-  const correct = getMasterPin();
-  if (entered === correct) {
-    document.getElementById('masterPinModal').classList.remove('open');
-    document.getElementById('masterPinError').style.display = 'none';
-    if (_pinCallback) { _pinCallback(); _pinCallback = null; }
-  } else {
-    document.getElementById('masterPinError').style.display = 'block';
-    document.getElementById('masterPinInput').value = '';
-    document.getElementById('masterPinInput').focus();
-  }
-}
 
 function renderSchoolList() {
   const reg = getRegistry();
   const container = document.getElementById('schoolListContainer');
   if (reg.length === 0) {
-    container.innerHTML = `
-      <div class="school-empty">
-        <i class="fas fa-school" style="font-size:48px;color:var(--border);margin-bottom:12px;"></i>
-        <p>No schools registered yet.</p>
-        <p style="font-size:12px;color:var(--text-light);">Click <strong>Register New School</strong> below to get started.</p>
-      </div>`;
+    container.innerHTML = `<div class="school-empty"><i class="fas fa-school" style="font-size:48px;color:var(--border);margin-bottom:12px;"></i><p>No schools registered yet.</p><p style="font-size:12px;color:var(--text-light);">Click <strong>Register New School</strong> below to get started.</p></div>`;
     return;
   }
   container.innerHTML = reg.map(s => `
     <div class="school-card" onclick="selectSchool('${s.id}','${escHtml(s.name)}')">
       <div class="school-card-icon"><i class="fas fa-graduation-cap"></i></div>
-      <div class="school-card-info">
-        <strong>${escHtml(s.name)}</strong>
-        <span>Created ${new Date(s.createdAt).toLocaleDateString('en-GH')}</span>
-      </div>
-      <button class="school-card-delete" title="Delete school" onclick="event.stopPropagation();promptDeleteSchool('${s.id}')">
-        <i class="fas fa-trash"></i>
-      </button>
+      <div class="school-card-info"><strong>${escHtml(s.name)}</strong><span>Created ${new Date(s.createdAt).toLocaleDateString('en-GH')}</span></div>
+      <button class="school-card-delete" title="Delete school" onclick="event.stopPropagation();promptDeleteSchool('${s.id}')"><i class="fas fa-trash"></i></button>
     </div>`).join('');
 }
 
 function escHtml(str) {
   return String(str).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
+function selectSchool(schoolId, schoolName) { showLoginScreen(schoolId, schoolName); }
 
-function selectSchool(schoolId, schoolName) {
-  showLoginScreen(schoolId, schoolName);
-}
+let _pendingDeleteSchoolId = null;
 
 function promptDeleteSchool(schoolId) {
-  const reg    = getRegistry();
-  const school = reg.find(s => s.id === schoolId);
+  const school = getRegistry().find(s => s.id === schoolId);
   if (!school) return;
-  requireMasterPin(
-    'Delete School',
-    `Enter Master PIN to delete "${school.name}". Data will be archived and can be restored within 90 days.`,
-    () => deleteSchool(schoolId)
-  );
+  _pendingDeleteSchoolId = schoolId;
+  document.getElementById('deleteSchoolNameLabel').textContent = `"${school.name}"`;
+  document.getElementById('deleteSchoolCode').value = '';
+  document.getElementById('deleteSchoolCodeError').style.display = 'none';
+  document.getElementById('deleteSchoolModal').classList.add('open');
+}
+
+function confirmDeleteSchool() {
+  const code = document.getElementById('deleteSchoolCode').value.trim();
+  if (code !== SUPER_ADMIN_CODE) {
+    document.getElementById('deleteSchoolCodeError').style.display = 'block';
+    return;
+  }
+  document.getElementById('deleteSchoolCodeError').style.display = 'none';
+  document.getElementById('deleteSchoolModal').classList.remove('open');
+  if (_pendingDeleteSchoolId) {
+    deleteSchool(_pendingDeleteSchoolId);
+    _pendingDeleteSchoolId = null;
+  }
 }
 
 function deleteSchool(schoolId) {
-  const reg    = getRegistry();
+  const reg = getRegistry();
   const school = reg.find(s => s.id === schoolId);
   if (!school) return;
-
-  // ── SOFT DELETE: archive data to Firebase before removing ──
   if (window._fbReady && _isOnline) {
     const schoolData = localStorage.getItem(getSchoolKey(schoolId));
-    const archivePayload = {
-      schoolId,
-      schoolName: school.name,
-      deletedAt:  new Date().toISOString(),
-      expiresAt:  new Date(Date.now() + 90*24*60*60*1000).toISOString(), // 90 days
-      data:       schoolData ? JSON.parse(schoolData) : {},
-    };
-    // Archive path: archives/<schoolId>
-    window._fb.set('archives/' + schoolId, archivePayload)
-      .then(() => {
-        // Now safe to remove live data
-        window._fb.set(fbSchoolPath(schoolId), null).catch(()=>{});
-        console.log('[FB] School archived ✅');
-      })
-      .catch(e => console.warn('[FB] Archive failed:', e));
+    const payload = { schoolId, schoolName: school.name, deletedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now()+90*24*60*60*1000).toISOString(), data: schoolData ? JSON.parse(schoolData) : {} };
+    window._fb.set('archives/'+schoolId, payload)
+      .then(() => { window._fb.set(fbSchoolPath(schoolId), null).catch(()=>{}); })
+      .catch(e => console.warn('[FB] archive failed:', e));
   }
-
-  // Remove from localStorage and registry
   localStorage.removeItem(getSchoolKey(schoolId));
   saveRegistry(reg.filter(s => s.id !== schoolId));
   renderSchoolList();
-  showToast('🗑️ School deleted. Data archived for 90 days — can be restored.');
+  showToast('🗑️ Deleted. Data archived 90 days — restorable.');
 }
 
-// ── RESTORE DELETED SCHOOL ──
 async function showRestoreModal() {
   document.getElementById('restoreSchoolModal').classList.add('open');
   const listEl = document.getElementById('archivedSchoolsList');
-  listEl.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading archives…</p>';
-
-  if (!window._fbReady || !_isOnline) {
-    listEl.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;"><i class="fas fa-wifi-slash"></i> No internet connection. Archives require Firebase.</p>';
-    return;
-  }
+  listEl.innerHTML = '<p style="text-align:center;padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading…</p>';
+  if (!window._fbReady || !_isOnline) { listEl.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;">Internet required to view archives.</p>'; return; }
   try {
     const snap = await window._fb.get('archives');
     if (!snap.exists()) { listEl.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;">No archived schools found.</p>'; return; }
-    const archives = snap.val();
     const now = Date.now();
-    const valid = Object.values(archives).filter(a => new Date(a.expiresAt).getTime() > now);
-    if (!valid.length) { listEl.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;">No restorable schools found. Archives expire after 90 days.</p>'; return; }
+    const valid = Object.values(snap.val()).filter(a => new Date(a.expiresAt).getTime() > now);
+    if (!valid.length) { listEl.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;">No restorable schools (archives expire after 90 days).</p>'; return; }
     listEl.innerHTML = valid.map(a => {
-      const daysLeft = Math.ceil((new Date(a.expiresAt).getTime() - now) / (1000*60*60*24));
-      const delDate  = new Date(a.deletedAt).toLocaleDateString('en-GH');
+      const days = Math.ceil((new Date(a.expiresAt).getTime()-now)/(86400000));
       return `<div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;display:flex;align-items:center;gap:12px;">
         <div style="font-size:28px;">🏫</div>
-        <div style="flex:1;">
-          <div style="font-weight:700;font-size:14px;">${escHtml(a.schoolName)}</div>
-          <div style="font-size:12px;color:var(--text-muted);">Deleted ${delDate} &nbsp;·&nbsp; <span style="color:var(--yellow);font-weight:600;">${daysLeft} day${daysLeft!==1?'s':''} left to restore</span></div>
-        </div>
-        <button class="btn-primary" style="font-size:12px;padding:6px 14px;" onclick="restoreSchool('${a.schoolId}')">
-          <i class="fas fa-trash-restore"></i> Restore
-        </button>
+        <div style="flex:1;"><div style="font-weight:700;">${escHtml(a.schoolName)}</div>
+          <div style="font-size:12px;color:var(--text-muted);">Deleted ${new Date(a.deletedAt).toLocaleDateString('en-GH')} · <span style="color:var(--yellow);font-weight:600;">${days} days left</span></div></div>
+        <button class="btn-primary" style="font-size:12px;padding:6px 14px;" onclick="restoreSchool('${a.schoolId}')"><i class="fas fa-trash-restore"></i> Restore</button>
       </div>`;
     }).join('');
-  } catch(e) {
-    listEl.innerHTML = '<p style="text-align:center;color:var(--red);padding:20px;"><i class="fas fa-exclamation-circle"></i> Failed to load archives. Check your connection.</p>';
-  }
+  } catch(e) { listEl.innerHTML = '<p style="color:var(--red);text-align:center;padding:20px;">Failed to load. Check connection.</p>'; }
 }
 
 async function restoreSchool(schoolId) {
-  if (!window._fbReady || !_isOnline) { showToast('⚠️ Internet required to restore.'); return; }
+  if (!window._fbReady || !_isOnline) { showToast('⚠️ Internet required.'); return; }
   try {
-    const snap = await window._fb.get('archives/' + schoolId);
-    if (!snap.exists()) { showToast('⚠️ Archive not found or expired.'); return; }
-    const archive = snap.val();
-
-    // Restore data to Firebase live path and localStorage
+    const snap = await window._fb.get('archives/'+schoolId);
+    if (!snap.exists()) { showToast('⚠️ Archive not found.'); return; }
+    const a = snap.val();
     const schoolKey = getSchoolKey(schoolId);
-    const restoredData = { ...archive.data, savedAt: Date.now() };
-    await window._fb.set(fbSchoolPath(schoolId), restoredData);
-    localStorage.setItem(schoolKey, JSON.stringify(restoredData));
-
-    // Re-add to registry
+    const restored = {...a.data, savedAt: Date.now()};
+    await window._fb.set(fbSchoolPath(schoolId), restored);
+    localStorage.setItem(schoolKey, JSON.stringify(restored));
     const reg = getRegistry();
     if (!reg.find(s => s.id === schoolId)) {
-      reg.push({ id: schoolId, key: schoolKey, name: archive.schoolName, createdAt: archive.data?.settings?.createdAt || new Date().toISOString() });
+      reg.push({id:schoolId, key:schoolKey, name:a.schoolName, createdAt: a.data?.settings?.createdAt||new Date().toISOString()});
       saveRegistry(reg);
     }
-
-    // Remove from archives
-    await window._fb.set('archives/' + schoolId, null);
-
+    await window._fb.set('archives/'+schoolId, null);
     document.getElementById('restoreSchoolModal').classList.remove('open');
     renderSchoolList();
-    showToast(`✅ "${archive.schoolName}" restored successfully with all data!`);
-  } catch(e) {
-    showToast('❌ Restore failed. Try again.'); console.error(e);
-  }
+    showToast(`✅ "${a.schoolName}" restored with all data!`);
+  } catch(e) { showToast('❌ Restore failed. Try again.'); console.error(e); }
 }
 
 function registerNewSchool() {
-  const name = document.getElementById('newSchoolName').value.trim();
+  const name      = document.getElementById('newSchoolName').value.trim();
   const adminName = document.getElementById('newSchoolAdmin').value.trim();
-  const adminUser = document.getElementById('newSchoolUsername').value.trim();
+  const adminUser = document.getElementById('newSchoolUsername').value.trim().toLowerCase();
   const adminPass = document.getElementById('newSchoolPassword').value.trim();
-  if (!name||!adminUser||!adminPass) { showToast('⚠️ Fill school name, username and password.'); return; }
-  if (adminPass.length < 6) { showToast('⚠️ Password must be at least 6 characters.'); return; }
+  const phone     = document.getElementById('newSchoolPhone')?.value.trim() || '';
+  const email     = document.getElementById('newSchoolEmail')?.value.trim() || '';
 
-  const schoolId = 'school_' + Date.now();
-  const schoolKey = getSchoolKey(schoolId);
-
-  // Build a fresh school data object
-  const freshData = {
-    students:[], fees:[], teachers:[], classes:[
-      {id:1,name:'KG1',level:'Kindergarten',teacher:''},
-      {id:2,name:'KG2',level:'Kindergarten',teacher:''},
-      {id:3,name:'P1',level:'Primary',teacher:''},
-      {id:4,name:'P2',level:'Primary',teacher:''},
-      {id:5,name:'P3',level:'Primary',teacher:''},
-      {id:6,name:'P4',level:'Primary',teacher:''},
-      {id:7,name:'P5',level:'Primary',teacher:''},
-      {id:8,name:'P6',level:'Primary',teacher:''},
-      {id:9,name:'JHS1',level:'JHS',teacher:''},
-      {id:10,name:'JHS2',level:'JHS',teacher:''},
-      {id:11,name:'JHS3',level:'JHS',teacher:''},
-    ],
-    albums:[], reports:[], weeklyRecords:[], attendance:[],
-    backupHistory:[], schoolLogo:null, driveClientId:'',
-    settings:{ schoolName:name, term:'First Term', session:new Date().getFullYear()+'/'+(new Date().getFullYear()+1), address:'', principal:adminName||'Administrator', district:'', motto:'' },
-    users:[{ id:1, username:adminUser, password:adminPass, role:'Admin', name:adminName||adminUser, active:true }],
-    nextStudentId:1, nextFeeId:1, nextTeacherId:1, nextClassId:12, nextAlbumId:1, nextWeeklyId:1, nextAttendanceId:1, nextUserId:2,
-  };
-
-  // Save locally first (works offline)
-  localStorage.setItem(schoolKey, JSON.stringify(freshData));
-  const reg = getRegistry();
-  reg.push({ id:schoolId, key:schoolKey, name, createdAt:new Date().toISOString() });
-  saveRegistry(reg); // saveRegistry also writes to Firebase
-
-  // Write school data to Firebase
-  if (window._fbReady && _isOnline) {
-    window._fb.set(fbSchoolPath(schoolId), { ...freshData, savedAt: Date.now() })
-      .then(() => console.log('[FB] New school written to Firebase ✅'))
-      .catch(e => console.warn('[FB] school write failed:', e));
+  if (!name || !adminUser || !adminPass) {
+    showRegisterError('Please fill in School Name, Admin Username and Password.');
+    return;
+  }
+  if (adminPass.length < 6) {
+    showRegisterError('Password must be at least 6 characters.');
+    return;
   }
 
-  document.getElementById('registerSchoolModal').classList.remove('open');
-  ['newSchoolName','newSchoolAdmin','newSchoolUsername','newSchoolPassword'].forEach(id=>document.getElementById(id).value='');
-  renderSchoolList();
-  showToast(`✅ School "${name}" registered! You can now log in.`);
+  const btn = document.getElementById('confirmRegisterBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting…';
+
+  submitSchoolRegistration(name, adminName, adminUser, adminPass, phone, email)
+    .then(() => {
+      document.getElementById('registerSchoolModal').classList.remove('open');
+      ['newSchoolName','newSchoolAdmin','newSchoolUsername','newSchoolPassword','newSchoolPhone','newSchoolEmail']
+        .forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+      // Show success screen
+      document.getElementById('regSuccessSchoolName').textContent = name;
+      document.getElementById('regSuccessModal').classList.add('open');
+    })
+    .catch(e => {
+      console.error(e);
+      showRegisterError('Submission failed. Please check your internet and try again.');
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-paper-plane"></i> Submit Registration';
+    });
 }
+
+function showRegisterError(msg) {
+  const el = document.getElementById('registerFormError');
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
+  else showToast('⚠️ ' + msg);
+}
+
 
 // ── LOGIN ──
 function attemptLogin() {
-  const username = document.getElementById('loginUsername').value.trim();
-  const password = document.getElementById('loginPassword').value;
+  const username = document.getElementById('loginUsername').value.trim().toLowerCase();
+  const password = document.getElementById('loginPassword').value.trim();
   const schoolId = document.getElementById('loginScreen').dataset.schoolId;
   if (!schoolId) { showSchoolSelector(); return; }
-
   const schoolKey = getSchoolKey(schoolId);
   const loginBtn  = document.getElementById('loginBtn');
   const resetBtn  = () => { if (loginBtn) { loginBtn.disabled = false; loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login'; } };
+  if (loginBtn) { loginBtn.disabled = true; loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...'; }
+  document.getElementById('loginError').style.display = 'none';
+  document.getElementById('loginErrorMsg').textContent = 'Wrong username or password.';
 
-  if (loginBtn) { loginBtn.disabled = true; loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading…'; }
+  // Lockout check
+  if (isLoginLocked(schoolId)) {
+    const secs = getRemainingLockout(schoolId);
+    document.getElementById('loginErrorMsg').textContent = 'Too many failed attempts. Try again in ' + secs + 's.';
+    document.getElementById('loginError').style.display = 'block';
+    resetBtn(); return;
+  }
 
   const proceed = () => {
-    const user = state.users.find(u => u.username===username && u.password===password && u.active);
+    const user = state.users.find(u =>
+      u.username && u.username.toLowerCase().trim() === username &&
+      u.password && u.password.trim() === password &&
+      u.active !== false
+    );
     if (!user) {
+      recordLoginFail(schoolId);
+      const tries = _loginAttempts[schoolId]?.count || 0;
+      const left = LOGIN_MAX_TRIES - tries;
+      document.getElementById('loginErrorMsg').textContent = left <= 0
+        ? 'Too many failed attempts. Wait 30 seconds.'
+        : 'Wrong username or password. ' + left + ' attempt' + (left!==1?'s':'') + ' left.';
       document.getElementById('loginError').style.display = 'block';
       resetBtn(); return;
     }
-
+    resetLoginAttempts(schoolId);
     _currentSchoolKey = schoolKey;
     state.currentUser = user;
     showApp();
     startRealtimeSync(schoolId);
     showSyncStatus(_isOnline ? 'online' : 'offline');
-
     document.querySelector('.user-name').textContent   = user.name;
     document.querySelector('.user-role').textContent   = user.role;
     document.querySelector('.user-avatar').textContent = user.name.charAt(0).toUpperCase();
     document.getElementById('sidebarSchoolName').textContent = state.settings.schoolName;
-
     renderStudents(); renderFees(); renderTeachers(); renderClasses();
     renderGallery(); renderSavedReports(); renderWeekly();
     renderAttendance(); renderUsers(); updateDashStats(); updateFeeStats();
@@ -4233,54 +4280,150 @@ function attemptLogin() {
     if (document.getElementById('currentTerm')) document.getElementById('currentTerm').value = s.term||'';
     applyRoleNav(user);
     resetBtn();
-    showToast(`👋 Welcome, ${user.name} — ${state.settings.schoolName}`);
+    showToast('Welcome back, ' + user.name + ' - ' + state.settings.schoolName);
   };
-
-  // Always load localStorage immediately (works offline, instant)
   loadSchoolData(schoolKey);
-
-  // If Firebase is ready and online, fetch latest data — but with a 5s timeout
-  // so a slow connection never leaves the user stuck on the spinner
   if (window._fbReady && _isOnline) {
     let done = false;
-    const timer = setTimeout(() => {
-      if (!done) { done = true; console.warn('[Login] Firebase timeout — using local data'); proceed(); }
-    }, 5000);
-
+    const timer = setTimeout(() => { if (!done) { done=true; proceed(); } }, 6000);
     loadSchoolDataFromFirebase(schoolId)
-      .then(() => { if (!done) { done = true; clearTimeout(timer); proceed(); } })
-      .catch(() => { if (!done) { done = true; clearTimeout(timer); proceed(); } });
+      .then(() => { if (!done) { done=true; clearTimeout(timer); proceed(); } })
+      .catch(() => { if (!done) { done=true; clearTimeout(timer); proceed(); } });
   } else {
-    // Offline or Firebase not loaded yet — use localStorage or proceed anyway
-    // (new device with no local data will show empty state but still log in)
     proceed();
   }
 }
 
-function applyRoleNav(user) {
-  const role = user.role || 'Teacher';
 
-  // Student/Parent role → hide main app, show portal
+// ══════════════════════════════════════
+// ROLE-BASED ACCESS CONTROL (RBAC)
+// The system ALWAYS reads role from state — users can never self-assign
+// ══════════════════════════════════════
+
+// What each role can access — system-defined, never user-input
+const SECTION_ROLES = {
+  dashboard:     ['Admin','Teacher'],
+  admissions:    ['Admin','Teacher'],
+  students:      ['Admin','Teacher'],
+  reports:       ['Admin','Teacher'],
+  fees:          ['Admin'],
+  gallery:       ['Admin','Teacher'],
+  expenditure:   ['Admin'],
+  weekly:        ['Admin','Teacher'],
+  attendance:    ['Admin','Teacher'],
+  idcards:       ['Admin','Teacher'],
+  promotion:     ['Admin'],
+  sms:           ['Admin'],
+  teachers:      ['Admin'],
+  classes:       ['Admin'],
+  resources:     ['Admin','Teacher'],
+  exams:         ['Admin','Teacher'],
+  transfers:     ['Admin'],
+  communication: ['Admin','Teacher'],
+  users:         ['Admin'],
+  settings:      ['Admin'],
+  backup:        ['Admin'],
+};
+
+// Login attempt tracker — prevents brute-force
+const _loginAttempts = {};
+const LOGIN_MAX_TRIES = 5;
+const LOGIN_LOCKOUT_MS = 30000; // 30 seconds
+
+function isLoginLocked(schoolId) {
+  const rec = _loginAttempts[schoolId];
+  if (!rec) return false;
+  if (rec.count >= LOGIN_MAX_TRIES) {
+    if (Date.now() - rec.lastTry < LOGIN_LOCKOUT_MS) return true;
+    // Lockout expired — reset
+    delete _loginAttempts[schoolId];
+  }
+  return false;
+}
+function recordLoginFail(schoolId) {
+  if (!_loginAttempts[schoolId]) _loginAttempts[schoolId] = { count:0, lastTry:0 };
+  _loginAttempts[schoolId].count++;
+  _loginAttempts[schoolId].lastTry = Date.now();
+}
+function resetLoginAttempts(schoolId) { delete _loginAttempts[schoolId]; }
+function getRemainingLockout(schoolId) {
+  const rec = _loginAttempts[schoolId];
+  if (!rec) return 0;
+  const remaining = LOGIN_LOCKOUT_MS - (Date.now() - rec.lastTry);
+  return remaining > 0 ? Math.ceil(remaining / 1000) : 0;
+}
+
+// The ONLY function that decides what a user can see — reads from state, never from user input
+function applyRoleNav(user) {
+  const role = user?.role || 'Teacher';
+
+  // Students/Parents → completely separate portal, no access to main app
   if (role === 'Student') {
     document.getElementById('appWrapper').style.display = 'none';
     showStudentPortal(user);
     return;
   }
 
-  // Show all nav first
-  document.querySelectorAll('.nav-item').forEach(el => el.style.display = '');
+  // Show all nav items first, then hide what this role can't access
+  document.querySelectorAll('.nav-item[data-section]').forEach(el => {
+    const section = el.dataset.section;
+    const allowed = SECTION_ROLES[section] || ['Admin'];
+    el.style.display = allowed.includes(role) ? '' : 'none';
+  });
 
-  // Admin sections hidden from Teacher
-  const adminOnly = ['backup','settings','users','expenditure'];
-  // Teacher-only visible sections
-  const teacherHidden = [...adminOnly, 'promotion'];
+  // Also hide section cards from topbar search if not allowed
+  document.querySelectorAll('.section[id^="sec-"]').forEach(el => {
+    const section = el.id.replace('sec-','');
+    const allowed = SECTION_ROLES[section] || ['Admin'];
+    // Mark each section with the allowed roles for guardSection()
+    el.dataset.allowedRoles = allowed.join(',');
+  });
 
-  if (role === 'Teacher') {
-    teacherHidden.forEach(sec => {
-      document.querySelectorAll(`[data-section="${sec}"]`).forEach(el => el.style.display = 'none');
+  // Apply custom per-user permissions on top of role defaults
+  if (user.permissions && user.permissions.length > 0 && role === 'Teacher') {
+    document.querySelectorAll('.nav-item[data-section]').forEach(el => {
+      const section = el.dataset.section;
+      // Teachers: only show sections they have permission for AND role allows
+      if (SECTION_ROLES[section]?.includes('Teacher')) {
+        el.style.display = user.permissions.includes(section) ? '' : 'none';
+      }
     });
   }
 }
+
+// Guard called every time a section is opened — double-checks access
+function guardSection(sectionName) {
+  const user = state.currentUser;
+  if (!user) { doLogout(); return false; }
+  const role = user.role || 'Teacher';
+  if (role === 'Student') { doLogout(); return false; }
+  const allowed = SECTION_ROLES[sectionName] || ['Admin'];
+  if (!allowed.includes(role)) {
+    showToast(`⛔ You don't have access to ${sectionName}.`);
+    // Redirect to dashboard
+    document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
+    const dash = document.getElementById('sec-dashboard');
+    if (dash) dash.style.display = '';
+    return false;
+  }
+  // For Teacher: also check per-user permissions
+  if (role === 'Teacher' && user.permissions?.length > 0) {
+    if (!user.permissions.includes(sectionName)) {
+      showToast(`⛔ You don't have permission for ${sectionName}.`);
+      document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
+      const dash = document.getElementById('sec-dashboard');
+      if (dash) dash.style.display = '';
+      return false;
+    }
+  }
+  return true;
+}
+
+// Can the current user manage roles / create Admins?
+function canManageAdmins() {
+  return state.currentUser?.role === 'Admin';
+}
+
 
 function doLogout() {
   saveNow();
@@ -4422,33 +4565,27 @@ function initLogin() {
   document.getElementById('cancelChangePwdModal').addEventListener('click', ()=>document.getElementById('changePasswordModal').classList.remove('open'));
   document.getElementById('saveNewPasswordBtn').addEventListener('click', saveNewPassword);
 
-  // Register new school — requires Master PIN
+  // Register new school — open directly (who can access this page is controlled by the app URL)
   document.getElementById('registerSchoolBtn').addEventListener('click', () => {
-    requireMasterPin(
-      'Register New School',
-      'Enter the Master PIN to register a new school on this system.',
-      () => document.getElementById('registerSchoolModal').classList.add('open')
-    );
+    document.getElementById('registerSchoolModal').classList.add('open');
   });
   document.getElementById('closeRegisterModal').addEventListener('click', ()=>document.getElementById('registerSchoolModal').classList.remove('open'));
   document.getElementById('cancelRegisterModal').addEventListener('click', ()=>document.getElementById('registerSchoolModal').classList.remove('open'));
   document.getElementById('confirmRegisterBtn').addEventListener('click', registerNewSchool);
 
-  // Restore deleted school button
-  document.getElementById('restoreSchoolBtn').addEventListener('click', () => {
-    requireMasterPin(
-      'Restore Deleted School',
-      'Enter the Master PIN to view and restore archived schools.',
-      () => showRestoreModal()
-    );
+  // Restore deleted school — open directly
+  const restoreBtn = document.getElementById('restoreSchoolBtn');
+  if (restoreBtn) restoreBtn.addEventListener('click', () => showRestoreModal());
+
+  // Super Admin panel — manage pending registrations
+  const superAdminBtn = document.getElementById('superAdminBtn');
+  if (superAdminBtn) superAdminBtn.addEventListener('click', () => {
+    document.getElementById('superAdminCode').value = '';
+    document.getElementById('superAdminCodeError').style.display = 'none';
+    document.getElementById('superAdminCodeRow').style.display = '';
+    document.getElementById('superAdminPanelBody').style.display = 'none';
+    document.getElementById('superAdminPanelModal').classList.add('open');
   });
-
-  // Master PIN confirm button + Enter key
-  document.getElementById('masterPinConfirmBtn').addEventListener('click', verifyMasterPin);
-  document.getElementById('masterPinInput').addEventListener('keydown', e => { if (e.key === 'Enter') verifyMasterPin(); });
-
-  // Sync master PIN from Firebase on load
-  syncMasterPin();
 
   // Toggle new school password visibility
   document.getElementById('toggleNewSchoolPwd').addEventListener('click', ()=>{
@@ -4493,6 +4630,7 @@ function initLogin() {
   });
 }
 
+
 function renderUsers() {
   const tbody = document.getElementById('usersTbody');
   if (!tbody) return;
@@ -4534,6 +4672,20 @@ function saveUser() {
   const password = document.getElementById('uPassword').value.trim();
   const role     = document.getElementById('uRole').value;
   const editId   = document.getElementById('uEditId').value;
+
+  // RBAC: Only Admins can manage users at all
+  if (!canManageAdmins()) { showToast('⛔ Only Admins can manage users.'); return; }
+
+  // RBAC: Only Admins can create other Admins
+  // Prevent creating an Admin account unless current user is Admin
+  if (role === 'Admin' && state.currentUser?.role !== 'Admin') {
+    showToast('⛔ Only an Admin can create another Admin account.'); return;
+  }
+
+  // RBAC: Cannot demote yourself
+  if (editId && parseInt(editId) === state.currentUser?.id && role !== state.currentUser?.role) {
+    showToast('⛔ You cannot change your own role.'); return;
+  }
 
   // Linked student for Student/Parent role
   const linkedStudentId = role === 'Student'
@@ -5115,68 +5267,6 @@ function renderResources() {
     </div>`).join('');
 }
 
-// ── RESOURCE CONTENT TAB SWITCHER ──
-function switchResTab(tab) {
-  ['file','text','link'].forEach(t => {
-    const btn   = document.getElementById('resTab' + t.charAt(0).toUpperCase() + t.slice(1));
-    const panel = document.getElementById('resContent' + t.charAt(0).toUpperCase() + t.slice(1));
-    const active = t === tab;
-    if (btn)   { btn.style.background = active ? 'var(--blue)' : 'var(--surface)'; btn.style.color = active ? '#fff' : 'var(--text)'; }
-    if (panel) panel.style.display = active ? '' : 'none';
-  });
-}
-
-function handleResFileDrop(event) {
-  event.preventDefault();
-  const zone = document.getElementById('resDropZone');
-  zone.style.borderColor = ''; zone.style.background = 'var(--bg)';
-  const file = event.dataTransfer.files[0];
-  if (file) processResFile(file);
-}
-
-function processResFile(file) {
-  const maxMB = 10;
-  if (file.size > maxMB * 1024 * 1024) { showToast(`⚠️ File too large. Max ${maxMB}MB.`); return; }
-  const ext  = file.name.split('.').pop().toLowerCase();
-  const icons = { pdf:'fas fa-file-pdf', doc:'fas fa-file-word', docx:'fas fa-file-word',
-                  ppt:'fas fa-file-powerpoint', pptx:'fas fa-file-powerpoint',
-                  xls:'fas fa-file-excel', xlsx:'fas fa-file-excel',
-                  png:'fas fa-file-image', jpg:'fas fa-file-image', jpeg:'fas fa-file-image',
-                  gif:'fas fa-file-image', txt:'fas fa-file-alt' };
-  const reader = new FileReader();
-  reader.onload = ev => {
-    const zone    = document.getElementById('resDropZone');
-    const preview = document.getElementById('resFilePreview');
-    const icon    = document.getElementById('resFileIcon');
-    const nameEl  = document.getElementById('resFileName');
-    const sizeEl  = document.getElementById('resFileSize');
-    zone.style.display    = 'none';
-    preview.style.display = 'flex';
-    icon.className        = (icons[ext] || 'fas fa-file') + ' ';
-    icon.style.color      = ext === 'pdf' ? '#dc2626' : ext.includes('doc') ? '#2563eb' : ext.includes('xls') ? '#16a34a' : ext.includes('ppt') ? '#d97706' : 'var(--blue)';
-    nameEl.textContent    = file.name;
-    sizeEl.textContent    = (file.size / 1024).toFixed(0) + ' KB · ' + ext.toUpperCase();
-    // Store on the input element as data attribute
-    document.getElementById('resFileInput').dataset.fileData     = ev.target.result;
-    document.getElementById('resFileInput').dataset.fileName     = file.name;
-    document.getElementById('resFileInput').dataset.fileType     = file.type;
-    document.getElementById('resFileInput').dataset.fileExt      = ext;
-    // Auto-fill title if empty
-    const titleEl = document.getElementById('resTitle');
-    if (titleEl && !titleEl.value) titleEl.value = file.name.replace(/\.[^.]+$/, '');
-    showToast('📎 File ready — click Save to attach it');
-  };
-  reader.readAsDataURL(file);
-}
-
-function clearResFile() {
-  const input   = document.getElementById('resFileInput');
-  const zone    = document.getElementById('resDropZone');
-  const preview = document.getElementById('resFilePreview');
-  input.value = ''; input.dataset.fileData = ''; input.dataset.fileName = '';
-  zone.style.display = ''; preview.style.display = 'none';
-}
-
 function saveResource() {
   const title    = document.getElementById('resTitle').value.trim();
   const type     = document.getElementById('resType').value;
@@ -5195,36 +5285,12 @@ function saveResource() {
   if (!title) { showToast('⚠️ Enter a title for this resource.'); return; }
   if (!type)  { showToast('⚠️ Select a resource type.'); return; }
 
-  // Detect which content tab is active
-  const fileInput   = document.getElementById('resFileInput');
-  const textContent = document.getElementById('resTextContent')?.value.trim() || '';
-  const link        = document.getElementById('resLink')?.value.trim() || '';
-  const fileData    = fileInput?.dataset.fileData || '';
-  const fileName    = fileInput?.dataset.fileName || '';
-  const fileExt     = fileInput?.dataset.fileExt  || '';
-
-  const contentType = fileData   ? 'file'
-                    : textContent ? 'text'
-                    : link        ? 'link'
-                    : 'none';
-
-  const payload = {
-    title, type, subject, cls, term, year, copies, condition,
-    author, location, addedBy, notes,
-    contentType,
-    fileData:    contentType === 'file' ? fileData    : '',
-    fileName:    contentType === 'file' ? fileName    : '',
-    fileExt:     contentType === 'file' ? fileExt     : '',
-    textContent: contentType === 'text' ? textContent : '',
-    link:        contentType === 'link' ? link        : '',
-  };
-
   if (editId) {
     const r = state.resources.find(r => r.id === parseInt(editId));
-    if (r) Object.assign(r, payload);
+    if (r) Object.assign(r, {title,type,subject,cls,term,year,copies,condition,author,location,addedBy,notes});
     showToast('✅ Resource updated!');
   } else {
-    state.resources.push({ id: state.nextResourceId++, ...payload, dateAdded: new Date().toISOString() });
+    state.resources.push({id:state.nextResourceId++, title,type,subject,cls,term,year,copies,condition,author,location,addedBy,notes, dateAdded:new Date().toISOString()});
     showToast('✅ Resource added to library!');
   }
   renderResources(); autosave();
@@ -5235,45 +5301,19 @@ function editResource(id) {
   const r = state.resources.find(r => r.id === id);
   if (!r) return;
   document.getElementById('resourceModalTitle').innerHTML = '<i class="fas fa-book-open"></i> Edit Resource';
-  document.getElementById('resEditId').value    = id;
-  document.getElementById('resTitle').value     = r.title||'';
-  document.getElementById('resType').value      = r.type||'';
-  document.getElementById('resSubject').value   = r.subject||'';
-  document.getElementById('resClass').value     = r.cls||'All Classes';
-  document.getElementById('resTerm').value      = r.term||'';
-  document.getElementById('resYear').value      = r.year||'';
-  document.getElementById('resCopies').value    = r.copies||1;
+  document.getElementById('resEditId').value = id;
+  document.getElementById('resTitle').value   = r.title||'';
+  document.getElementById('resType').value    = r.type||'';
+  document.getElementById('resSubject').value = r.subject||'';
+  document.getElementById('resClass').value   = r.cls||'All Classes';
+  document.getElementById('resTerm').value    = r.term||'';
+  document.getElementById('resYear').value    = r.year||'';
+  document.getElementById('resCopies').value  = r.copies||1;
   document.getElementById('resCondition').value = r.condition||'Good';
-  document.getElementById('resAuthor').value    = r.author||'';
-  document.getElementById('resLocation').value  = r.location||'';
-  document.getElementById('resAddedBy').value   = r.addedBy||'';
-  document.getElementById('resNotes').value     = r.notes||'';
-
-  // Restore content tab
-  clearResFile();
-  document.getElementById('resTextContent').value = '';
-  document.getElementById('resLink').value = '';
-
-  if (r.contentType === 'file' && r.fileData) {
-    const input = document.getElementById('resFileInput');
-    input.dataset.fileData = r.fileData;
-    input.dataset.fileName = r.fileName||'';
-    input.dataset.fileExt  = r.fileExt||'';
-    document.getElementById('resDropZone').style.display = 'none';
-    const preview = document.getElementById('resFilePreview');
-    preview.style.display = 'flex';
-    document.getElementById('resFileName').textContent = r.fileName||'Attached file';
-    document.getElementById('resFileSize').textContent = r.fileExt?.toUpperCase()||'';
-    switchResTab('file');
-  } else if (r.contentType === 'text') {
-    document.getElementById('resTextContent').value = r.textContent||'';
-    switchResTab('text');
-  } else if (r.contentType === 'link' || r.link) {
-    document.getElementById('resLink').value = r.link||'';
-    switchResTab('link');
-  } else {
-    switchResTab('file');
-  }
+  document.getElementById('resAuthor').value  = r.author||'';
+  document.getElementById('resLocation').value= r.location||'';
+  document.getElementById('resAddedBy').value = r.addedBy||'';
+  document.getElementById('resNotes').value   = r.notes||'';
   document.getElementById('resourceModal').classList.add('open');
 }
 
@@ -5293,19 +5333,76 @@ function clearResourceModal() {
   const copies = document.getElementById('resCopies'); if(copies) copies.value='1';
   const cond = document.getElementById('resCondition'); if(cond) cond.value='New';
   document.getElementById('resEditId').value='';
-  document.getElementById('resTextContent').value='';
-  document.getElementById('resLink').value='';
-  clearResFile();
-  switchResTab('file');
 }
 
 function downloadResourcesCSV() {
-  const rows = (state.resources||[]).map((r,i) => [i+1, r.title||'', r.type||'', r.subject||'', r.cls||'', r.term||'', r.year||'', r.copies||1, r.condition||'', r.author||'', r.location||'', r.addedBy||'', r.contentType||'none', r.notes||'']);
-  let csv = 'No,Title,Type,Subject,Class,Term,Year,Copies,Condition,Author,Location,Added By,Content Type,Notes\n';
+  const rows = (state.resources||[]).map((r,i) => [i+1, r.title||'', r.type||'', r.subject||'', r.cls||'', r.term||'', r.year||'', r.copies||1, r.condition||'', r.author||'', r.location||'', r.addedBy||'', r.notes||'']);
+  let csv = 'No,Title,Type,Subject,Class,Term,Year,Copies,Condition,Author/Publisher,Location,Added By,Notes\n';
   rows.forEach(r => { csv += r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',') + '\n'; });
   const blob = new Blob([csv], {type:'text/csv'});
   const a = Object.assign(document.createElement('a'), {href:URL.createObjectURL(blob), download:'resources.csv'});
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+// ── RESOURCE CONTENT TAB SWITCHER ──
+function switchResTab(tab) {
+  ['file','text','link'].forEach(t => {
+    const btn   = document.getElementById('resTab'+t.charAt(0).toUpperCase()+t.slice(1));
+    const panel = document.getElementById('resContent'+t.charAt(0).toUpperCase()+t.slice(1));
+    const active = t === tab;
+    if (btn)   { btn.style.background = active ? 'var(--blue)' : 'var(--surface)'; btn.style.color = active ? '#fff' : 'var(--text)'; }
+    if (panel) panel.style.display = active ? '' : 'none';
+  });
+}
+function handleResFileDrop(event) {
+  event.preventDefault();
+  const zone = document.getElementById('resDropZone');
+  zone.style.borderColor=''; zone.style.background='var(--bg)';
+  if (event.dataTransfer.files[0]) processResFile(event.dataTransfer.files[0]);
+}
+function processResFile(file) {
+  if (file.size > 10*1024*1024) { showToast('⚠️ File too large. Max 10MB.'); return; }
+  const ext = file.name.split('.').pop().toLowerCase();
+  const icons = {pdf:'fas fa-file-pdf',doc:'fas fa-file-word',docx:'fas fa-file-word',
+                 ppt:'fas fa-file-powerpoint',pptx:'fas fa-file-powerpoint',
+                 xls:'fas fa-file-excel',xlsx:'fas fa-file-excel',
+                 png:'fas fa-file-image',jpg:'fas fa-file-image',jpeg:'fas fa-file-image',txt:'fas fa-file-alt'};
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const zone=document.getElementById('resDropZone');
+    const preview=document.getElementById('resFilePreview');
+    const icon=document.getElementById('resFileIcon');
+    const nameEl=document.getElementById('resFileName');
+    const sizeEl=document.getElementById('resFileSize');
+    if(zone) zone.style.display='none';
+    if(preview) preview.style.display='flex';
+    if(icon) { icon.className=(icons[ext]||'fas fa-file'); icon.style.color=ext==='pdf'?'#dc2626':ext.includes('doc')?'#2563eb':ext.includes('xls')?'#16a34a':'var(--blue)'; }
+    if(nameEl) nameEl.textContent=file.name;
+    if(sizeEl) sizeEl.textContent=(file.size/1024).toFixed(0)+' KB · '+ext.toUpperCase();
+    const inp=document.getElementById('resFileInput');
+    if(inp){ inp.dataset.fileData=ev.target.result; inp.dataset.fileName=file.name; inp.dataset.fileType=file.type; inp.dataset.fileExt=ext; }
+    const titleEl=document.getElementById('resTitle');
+    if(titleEl&&!titleEl.value) titleEl.value=file.name.replace(/\.[^.]+$/,'');
+    showToast('File ready — click Save to attach');
+  };
+  reader.readAsDataURL(file);
+}
+function clearResFile() {
+  const input=document.getElementById('resFileInput');
+  const zone=document.getElementById('resDropZone');
+  const preview=document.getElementById('resFilePreview');
+  if(input){input.value='';input.dataset.fileData='';input.dataset.fileName='';}
+  if(zone) zone.style.display='';
+  if(preview) preview.style.display='none';
+}
+
+function portalToggleText(id) {
+  const div=document.getElementById(id);
+  const btn=document.getElementById('btn_'+id);
+  if(!div) return;
+  const showing=div.style.display!=='none'&&div.style.display!=='';
+  div.style.display=showing?'none':'block';
+  if(btn) btn.innerHTML=showing?'<i class="fas fa-book-open"></i> Read Content':'<i class="fas fa-chevron-up"></i> Hide Content';
 }
 
 function initResources() {
@@ -5330,117 +5427,55 @@ function initResources() {
   if (searchEl) searchEl.addEventListener('input', renderResources);
 }
 
+
 // ══════════════════════════════════════
 // THEME SYSTEM
 // ══════════════════════════════════════
 const THEMES = {
-  blue:   { name:'GES Blue',      accent:'#1a6fd4', accentLight:'#e8f0fb', accentDark:'#1255a8', sidebarBg:'#0f2a5e',  sidebarDark:true  },
-  teal:   { name:'Ocean Teal',    accent:'#0891b2', accentLight:'#e0f7fd', accentDark:'#0670a0', sidebarBg:'#0c3347',  sidebarDark:true  },
-  green:  { name:'Forest Green',  accent:'#16a34a', accentLight:'#dcfce7', accentDark:'#15803d', sidebarBg:'#0d2e1c',  sidebarDark:true  },
-  purple: { name:'Royal Purple',  accent:'#7c3aed', accentLight:'#ede9fe', accentDark:'#6d28d9', sidebarBg:'#1e1035',  sidebarDark:true  },
-  red:    { name:'Crimson Red',   accent:'#dc2626', accentLight:'#fee2e2', accentDark:'#b91c1c', sidebarBg:'#2d0a0a',  sidebarDark:true  },
-  slate:  { name:'Slate Dark',    accent:'#475569', accentLight:'#f1f5f9', accentDark:'#334155', sidebarBg:'#1e293b',  sidebarDark:true  },
+  blue:   { name:'GES Blue',      '--blue':'#1a6fd4', '--blue-light':'#e8f0fb', '--blue-dark':'#1255a8', '--sidebar-bg':'#0f2a5e', '--sidebar-active':'#1a6fd4' },
+  teal:   { name:'Ocean Teal',    '--blue':'#0891b2', '--blue-light':'#e0f7fd', '--blue-dark':'#0670a0', '--sidebar-bg':'#0c3347', '--sidebar-active':'#0891b2' },
+  green:  { name:'Forest Green',  '--blue':'#16a34a', '--blue-light':'#dcfce7', '--blue-dark':'#15803d', '--sidebar-bg':'#0d2e1c', '--sidebar-active':'#16a34a' },
+  purple: { name:'Royal Purple',  '--blue':'#7c3aed', '--blue-light':'#ede9fe', '--blue-dark':'#6d28d9', '--sidebar-bg':'#1e1035', '--sidebar-active':'#7c3aed' },
+  red:    { name:'Crimson Red',   '--blue':'#dc2626', '--blue-light':'#fee2e2', '--blue-dark':'#b91c1c', '--sidebar-bg':'#2d0a0a', '--sidebar-active':'#dc2626' },
+  slate:  { name:'Slate Dark',    '--blue':'#475569', '--blue-light':'#f1f5f9', '--blue-dark':'#334155', '--sidebar-bg':'#1e293b', '--sidebar-active':'#475569' },
 };
 
-// Master function: applies CSS vars + all sidebar text colours in one pass
 function applyTheme(themeKey) {
   const theme = THEMES[themeKey];
   if (!theme) return;
   state.appTheme = themeKey;
-
-  // 1. CSS custom properties
   const root = document.documentElement;
-  root.style.setProperty('--blue',       theme.accent);
-  root.style.setProperty('--blue-light', theme.accentLight);
-  root.style.setProperty('--blue-dark',  theme.accentDark);
-
-  // 2. Re-paint the sidebar (respects current sidebarStyle override)
-  _paintSidebar();
-
+  root.style.setProperty('--blue', theme['--blue']);
+  root.style.setProperty('--blue-light', theme['--blue-light']);
+  root.style.setProperty('--blue-dark', theme['--blue-dark']);
+  // Sidebar color
+  const sidebar = document.querySelector('.sidebar');
+  if (sidebar) sidebar.style.background = theme['--sidebar-bg'];
+  // Active nav items
+  document.querySelectorAll('.nav-item.active').forEach(el => {
+    el.style.background = theme['--sidebar-active'];
+  });
   autosave();
   renderThemeSwatches();
 }
 
-// Paints sidebar bg + ALL text inside it based on current theme + sidebarStyle
-function _paintSidebar() {
-  const sidebar  = document.querySelector('.sidebar');
-  if (!sidebar) return;
-
-  const themeKey = state.appTheme || 'blue';
-  const theme    = THEMES[themeKey] || THEMES.blue;
-  const style    = state.sidebarStyle || 'dark';
-
-  let bg, isLight;
-  if (style === 'light') {
-    bg = '#ffffff'; isLight = true;
-    sidebar.style.borderRight = '1px solid #dde3ef';
-  } else if (style === 'gradient') {
-    bg = `linear-gradient(160deg, ${theme.accent} 0%, ${theme.sidebarBg} 65%)`;
-    isLight = false;
-    sidebar.style.borderRight = 'none';
-  } else {
-    // dark — use theme's own dark sidebar colour
-    bg = theme.sidebarBg; isLight = false;
-    sidebar.style.borderRight = 'none';
-  }
-  sidebar.style.background = bg;
-
-  // Text colours that depend on whether sidebar is light or dark
-  const navText    = isLight ? 'rgba(30,40,60,.70)'  : 'rgba(255,255,255,.65)';
-  const navHover   = isLight ? theme.accent          : '#ffffff';
-  const navActive  = isLight ? theme.accent          : '#ffffff';
-  const navActiveBg= isLight ? theme.accentLight     : theme.accent;
-  const labelColor = isLight ? 'rgba(30,40,60,.35)'  : 'rgba(255,255,255,.30)';
-  const brandName  = isLight ? '#1a2133'             : '#ffffff';
-  const brandPro   = isLight ? theme.accent          : '#93c5fd';
-  const userName   = isLight ? '#1a2133'             : '#ffffff';
-  const userRole   = isLight ? 'rgba(30,40,60,.45)'  : 'rgba(255,255,255,.40)';
-  const footBtnCol = isLight ? '#475569'             : 'rgba(255,255,255,.55)';
-  const borderCol  = isLight ? 'rgba(0,0,0,.08)'     : 'rgba(255,255,255,.08)';
-
-  // Nav items
-  sidebar.querySelectorAll('.nav-item').forEach(el => {
-    el.style.color = navText;
-    el.style.background = '';
-    el.onmouseenter = () => { if (!el.classList.contains('active')) { el.style.background='rgba(0,0,0,.05)'; el.style.color=navHover; } };
-    el.onmouseleave = () => { if (!el.classList.contains('active')) { el.style.background=''; el.style.color=navText; } };
-  });
-  sidebar.querySelectorAll('.nav-item.active').forEach(el => {
-    el.style.background = navActiveBg;
-    el.style.color      = navActive;
-  });
-
-  // Labels
-  sidebar.querySelectorAll('.nav-label').forEach(el => el.style.color = labelColor);
-
-  // Brand text
-  const bn = sidebar.querySelector('.brand-name');  if (bn) bn.style.color = brandName;
-  const bp = sidebar.querySelector('.brand-pro');   if (bp) bp.style.color = brandPro;
-  const un = sidebar.querySelector('.user-name');   if (un) un.style.color = userName;
-  const ur = sidebar.querySelector('.user-role');   if (ur) ur.style.color = userRole;
-
-  // Brand icon bg
-  const bi = sidebar.querySelector('.brand-icon');
-  if (bi) { bi.style.background = isLight ? theme.accentLight : theme.accent;
-            bi.style.color      = isLight ? theme.accent       : '#ffffff'; }
-
-  // User avatar
-  const ua = sidebar.querySelector('.user-avatar');
-  if (ua) { ua.style.background = isLight ? theme.accentLight : theme.accent;
-            ua.style.color      = isLight ? theme.accent       : '#ffffff'; }
-
-  // Footer buttons
-  sidebar.querySelectorAll('.sidebar-foot-btn').forEach(el => el.style.color = footBtnCol);
-
-  // Divider lines
-  sidebar.querySelectorAll('.sidebar-brand, .sidebar-footer').forEach(el => {
-    el.style.borderColor = borderCol;
-  });
-}
-
 function applySidebarStyle(style) {
   state.sidebarStyle = style;
-  _paintSidebar();
+  const sidebar = document.querySelector('.sidebar');
+  if (!sidebar) return;
+  if (style === 'light') {
+    sidebar.style.background = '#ffffff';
+    sidebar.style.borderRight = '1px solid #dde3ef';
+    document.querySelectorAll('.nav-item').forEach(el => {
+      el.style.color = '#1a2133';
+    });
+  } else if (style === 'gradient') {
+    sidebar.style.background = 'linear-gradient(160deg, #1a6fd4 0%, #0f2a5e 60%)';
+    sidebar.style.borderRight = 'none';
+  } else {
+    sidebar.style.background = '#0f2a5e';
+    sidebar.style.borderRight = 'none';
+  }
   autosave();
 }
 
@@ -5453,47 +5488,43 @@ function applyFontSize(size) {
 function renderThemeSwatches() {
   const grid = document.getElementById('themeSwatchGrid');
   if (!grid) return;
-  const active = state.appTheme || 'blue';
-  grid.innerHTML = Object.entries(THEMES).map(([key, t]) => {
-    const isActive = active === key;
-    // Swatch bottom strip: always white bg with dark text so it's always readable
-    return `
-    <div onclick="applyTheme('${key}')"
-         style="cursor:pointer;border-radius:10px;overflow:hidden;
-                border:3px solid ${isActive ? t.accent : 'transparent'};
-                box-shadow:${isActive ? '0 0 0 1px '+t.accent : 'none'};
-                transition:all .18s;"
-         onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 16px rgba(0,0,0,.18)'"
-         onmouseout="this.style.transform='';this.style.boxShadow='${isActive?'0 0 0 1px '+t.accent:'none'}'"
-         title="${t.name}">
-      <!-- Sidebar preview strip (always dark bg) -->
-      <div style="height:40px;background:${t.sidebarBg};display:flex;align-items:center;padding:0 10px;gap:7px;">
-        <div style="width:10px;height:10px;border-radius:50%;background:${t.accent};flex-shrink:0;"></div>
-        <div style="flex:1;display:flex;flex-direction:column;gap:3px;">
-          <div style="height:4px;border-radius:2px;background:rgba(255,255,255,.35);width:70%;"></div>
-          <div style="height:4px;border-radius:2px;background:rgba(255,255,255,.18);width:50%;"></div>
+  grid.innerHTML = Object.entries(THEMES).map(([key, t]) => `
+    <div onclick="applyTheme('${key}')" style="cursor:pointer;border-radius:10px;overflow:hidden;border:3px solid ${state.appTheme===key?t['--blue']:'transparent'};transition:all .2s;" title="${t.name}">
+      <div style="height:36px;background:${t['--sidebar-bg']};display:flex;align-items:center;justify-content:center;gap:4px;">
+        <div style="width:12px;height:12px;border-radius:50%;background:${t['--blue']};"></div>
+        <div style="width:30px;height:6px;border-radius:3px;background:rgba(255,255,255,.25);"></div>
+      </div>
+      <div style="background:${t['--blue-light']};padding:6px 8px;display:flex;align-items:center;gap:6px;">
+        <div style="width:20px;height:20px;border-radius:50%;background:${t['--blue']};flex-shrink:0;"></div>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:${t['--blue']}">${t.name}</div>
+          ${state.appTheme===key?`<div style="font-size:10px;color:${t['--blue']}">✓ Active</div>`:''}
         </div>
       </div>
-      <!-- Label strip — always white bg, dark text = always readable -->
-      <div style="background:#ffffff;padding:7px 10px;display:flex;align-items:center;gap:8px;border-top:1px solid #eee;">
-        <div style="width:18px;height:18px;border-radius:50%;background:${t.accent};flex-shrink:0;"></div>
-        <div style="min-width:0;">
-          <div style="font-size:11px;font-weight:700;color:#1a2133;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t.name}</div>
-          ${isActive ? `<div style="font-size:10px;color:${t.accent};font-weight:600;">✓ Active</div>` : `<div style="font-size:10px;color:#94a3b8;">Click to apply</div>`}
-        </div>
-      </div>
-    </div>`;
-  }).join('');
+    </div>`).join('');
 }
 
 function initTheme() {
+  // Restore saved theme
   applyTheme(state.appTheme || 'blue');
   if (state.sidebarStyle) applySidebarStyle(state.sidebarStyle);
   if (state.fontSize) applyFontSize(state.fontSize);
+  // Restore select values
   const ssEl = document.getElementById('sidebarStyleSelect');
   if (ssEl && state.sidebarStyle) ssEl.value = state.sidebarStyle;
   const fsEl = document.getElementById('fontSizeSelect');
   if (fsEl && state.fontSize) fsEl.value = state.fontSize;
+}
+
+function copySMSMsg(btn) {
+  const txt = btn.getAttribute('data-sms') || '';
+  navigator.clipboard.writeText(txt).then(() => showToast('📋 SMS copied!')).catch(() => {
+    // fallback
+    const ta = document.createElement('textarea');
+    ta.value = txt; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+    showToast('📋 SMS copied!');
+  });
 }
 
 // ══════════════════════════════════════
@@ -5988,7 +6019,7 @@ function generateSMSReminders2() {
       <td>${i+1}</td><td><strong>${f.student}</strong></td><td>${f.cls||pupil?.cls||'—'}</td>
       <td style="font-weight:700;color:var(--red);">GH₵${bal.toFixed(2)}</td>
       <td>${phone}</td>
-      <td><button class="tbl-btn" data-smsmsg="${smsText}" onclick="var t=this.getAttribute('data-smsmsg');navigator.clipboard.writeText(t);showToast('📋 SMS copied!')"><i class="fas fa-copy"></i> Copy</button>
+      <td><button class="tbl-btn" onclick="copySMSMsg(this)" data-sms="${escHtml(smsText)}"><i class="fas fa-copy"></i> Copy</button>
           ${phone!=='—'?`<a class="tbl-btn" href="sms:${phone}?body=${encodeURIComponent(smsText)}" style="text-decoration:none;"><i class="fas fa-sms"></i> SMS</a>`:''}
       </td>
     </tr>`;
@@ -6148,118 +6179,25 @@ function renderPortalResults() {
   const pupil = _portalPupil();
   if (!panel) return;
   if (!pupil) { panel.innerHTML = `<div class="card"><p style="color:var(--text-muted);">No pupil linked to this account.</p></div>`; return; }
-  const fullName = `${pupil.first} ${pupil.last}`.toLowerCase();
-  // Match by studentId OR name (case-insensitive) OR class
-  const reports = (state.reports||[]).map((r,i)=>({...r,_idx:i}))
-    .filter(r => {
-      if (r.studentId && r.studentId === pupil.id) return true;
-      const rName = (r.name||r.studentName||'').toLowerCase();
-      if (rName && rName === fullName) return true;
-      if (r.cls && r.cls === pupil.cls) return true;
-      return false;
-    });
-  if (!reports.length) {
-    panel.innerHTML = `<div class="card"><div style="text-align:center;padding:30px;color:var(--text-muted);"><i class="fas fa-chart-bar" style="font-size:32px;display:block;margin-bottom:10px;"></i>No report cards available yet.<br><small>Your teacher will publish your report card at the end of term.</small></div></div>`;
-    return;
-  }
-  panel.innerHTML = `<div style="display:grid;gap:16px;">` + reports.map(r => {
-    const gradeColor = g => {
-      const n = parseFloat(g);
-      if (isNaN(n)) return 'var(--text-muted)';
-      return n >= 80 ? '#16a34a' : n >= 60 ? '#2563eb' : n >= 50 ? '#d97706' : '#dc2626';
-    };
-    return `
+  const fullName = `${pupil.first} ${pupil.last}`;
+  const reports  = (state.reports||[]).filter(r => r.studentName === fullName || r.studentId === pupil.id);
+  if (!reports.length) { panel.innerHTML = `<div class="card"><div style="text-align:center;padding:30px;color:var(--text-muted);"><i class="fas fa-chart-bar" style="font-size:32px;display:block;margin-bottom:10px;"></i>No report cards available yet.</div></div>`; return; }
+  panel.innerHTML = `<div style="display:grid;gap:16px;">` + reports.map(r => `
     <div class="card">
       <div class="card-head">
-        <h2 class="card-title"><i class="fas fa-file-alt"></i> ${r.term||'—'} &nbsp;·&nbsp; ${r.year||'—'}</h2>
-        <button class="btn-primary" style="font-size:12px;" onclick="viewPortalReport(${r._idx})"><i class="fas fa-print"></i> Print Report</button>
+        <h2 class="card-title"><i class="fas fa-file-alt"></i> ${r.term||'—'} — ${r.year||'—'}</h2>
+        <button class="btn-ghost" onclick="viewPortalReport(${r.id})" style="font-size:12px;"><i class="fas fa-eye"></i> View</button>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
-        <div style="background:var(--blue-light);padding:8px 14px;border-radius:8px;font-size:12px;"><strong>Class:</strong> ${r.cls||pupil.cls}</div>
-        <div style="background:var(--blue-light);padding:8px 14px;border-radius:8px;font-size:12px;"><strong>Position:</strong> ${r.position||'—'} / ${r.classSize||'—'}</div>
-        <div style="background:var(--blue-light);padding:8px 14px;border-radius:8px;font-size:12px;"><strong>Average:</strong> ${r.avg||'—'}% (${r.avgGrade||'—'})</div>
-        <div style="background:var(--blue-light);padding:8px 14px;border-radius:8px;font-size:12px;"><strong>Attendance:</strong> ${r.daysPresent||'—'} / ${r.totalDays||'—'} days</div>
-      </div>
-      ${r.rows && r.rows.length ? `
-        <div class="table-wrap"><table class="data-table" style="font-size:12px;">
-          <thead><tr><th>Subject</th><th>Class Score</th><th>Exams</th><th>Total</th><th>Grade</th><th>Remark</th></tr></thead>
-          <tbody>${r.rows.map(sub=>`<tr>
-            <td style="font-weight:600;">${sub.name||sub.subject||'—'}</td>
-            <td>${sub.classScore||sub.cs||'—'}</td>
-            <td>${sub.examScore||sub.es||'—'}</td>
-            <td style="font-weight:800;color:${gradeColor(sub.total)}">${sub.total||'—'}</td>
-            <td>${sub.grade||'—'}</td>
-            <td style="font-size:11px;color:var(--text-muted);">${sub.remark||'—'}</td>
-          </tr>`).join('')}</tbody>
-        </table></div>` : ''}
-      ${r.remark ? `<div style="margin-top:10px;padding:10px 14px;background:var(--bg);border-radius:8px;font-size:13px;"><strong>Teacher's Remark:</strong> <em>${r.remark}</em></div>` : ''}
-      ${r.hmRemark ? `<div style="margin-top:6px;padding:10px 14px;background:var(--bg);border-radius:8px;font-size:13px;"><strong>Headmaster's Remark:</strong> <em>${r.hmRemark}</em></div>` : ''}
-    </div>`;
-  }).join('') + `</div>`;
-}
-
-function viewPortalReport(idx) {
-  const r = (state.reports||[])[idx];
-  if (!r) { showToast('Report not found.'); return; }
-  const school = state.settings;
-  const logoHtml = state.schoolLogo ? `<img src="${state.schoolLogo}" style="height:65px;object-fit:contain;"/>` : '🏫';
-  const gradeColor = g => { const n=parseFloat(g); if(isNaN(n)) return '#374151'; return n>=80?'#16a34a':n>=60?'#2563eb':n>=50?'#d97706':'#dc2626'; };
-  const win = window.open('','_blank');
-  const rows = (r.rows||[]).map((sub,i)=>`<tr>
-    <td>${i+1}</td><td>${sub.name||sub.subject||'—'}</td>
-    <td style="text-align:center;">${sub.classScore||sub.cs||'—'}</td>
-    <td style="text-align:center;">${sub.examScore||sub.es||'—'}</td>
-    <td style="text-align:center;font-weight:800;color:${gradeColor(sub.total)}">${sub.total||'—'}</td>
-    <td style="text-align:center;">${sub.grade||'—'}</td>
-    <td>${sub.remark||'—'}</td>
-  </tr>`).join('');
-  win.document.write(`<!DOCTYPE html><html><head><title>Report Card — ${r.name}</title><style>
-    body{font-family:'Segoe UI',Arial,sans-serif;padding:24px;max-width:720px;margin:auto;color:#1a2133;}
-    .header{display:flex;align-items:center;gap:16px;border-bottom:3px solid #1a6fd4;padding-bottom:14px;margin-bottom:18px;}
-    .school-name{font-size:19px;font-weight:800;color:#1a6fd4;}.sub{font-size:12px;color:#64748b;}
-    .title{background:#e8f0fe;padding:10px 16px;border-radius:8px;color:#1a6fd4;font-weight:700;font-size:14px;margin-bottom:14px;}
-    .info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px;}
-    .info-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px;text-align:center;}
-    .info-val{font-size:16px;font-weight:800;}.info-lbl{font-size:10px;color:#64748b;margin-top:2px;}
-    table{width:100%;border-collapse:collapse;margin-bottom:14px;}
-    th{background:#1a6fd4;color:#fff;padding:7px 10px;font-size:11px;text-align:left;}
-    td{padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;}
-    .remark{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:12px;}
-    .sig{display:flex;justify-content:space-between;margin-top:30px;}
-    .sig-box{text-align:center;width:160px;}.sig-line{border-top:1px solid #333;padding-top:4px;font-size:10px;color:#555;}
-    .footer{margin-top:16px;padding-top:10px;border-top:1px solid #eee;font-size:10px;color:#94a3b8;text-align:center;}
-  </style></head><body>
-  <div class="header">${logoHtml}<div>
-    <div class="school-name">${school.schoolName||'School'}</div>
-    <div class="sub">${school.address||''} | ${school.district||''}</div>
-    <div class="sub">Headmaster: ${school.principal||''} | ${school.motto||''}</div>
-  </div></div>
-  <div class="title">📋 Academic Report Card &nbsp;·&nbsp; ${r.term||'—'} &nbsp;·&nbsp; ${r.year||'—'}</div>
-  <div style="margin-bottom:12px;font-size:13px;"><strong>Name:</strong> ${r.name} &nbsp;&nbsp; <strong>Class:</strong> ${r.cls} &nbsp;&nbsp; <strong>Date:</strong> ${r.date||''}</div>
-  <div class="info-grid">
-    <div class="info-box"><div class="info-val">${r.avg||'—'}%</div><div class="info-lbl">Average</div></div>
-    <div class="info-box"><div class="info-val">${r.avgGrade||'—'}</div><div class="info-lbl">Grade</div></div>
-    <div class="info-box"><div class="info-val">${r.position||'—'}/${r.classSize||'—'}</div><div class="info-lbl">Position</div></div>
-    <div class="info-box"><div class="info-val">${r.daysPresent||'—'}/${r.totalDays||'—'}</div><div class="info-lbl">Attendance</div></div>
-    <div class="info-box"><div class="info-val">${r.interest||'—'}</div><div class="info-lbl">Interest</div></div>
-    <div class="info-box"><div class="info-val">${r.conduct||'—'}</div><div class="info-lbl">Conduct</div></div>
-  </div>
-  <table>
-    <thead><tr><th>#</th><th>Subject</th><th>Class Score</th><th>Exams</th><th>Total</th><th>Grade</th><th>Remark</th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table>
-  <div class="remark"><strong>Class Teacher:</strong> <em>${r.remark||'—'}</em></div>
-  <div class="remark"><strong>Headmaster:</strong> <em>${r.hmRemark||'—'}</em></div>
-  ${r.nextTerm ? `<div class="remark"><strong>Next Term Begins:</strong> ${r.nextTerm}</div>` : ''}
-  <div class="sig">
-    <div class="sig-box"><div class="sig-line">Class Teacher</div></div>
-    <div class="sig-box"><div class="sig-line">Headmaster</div></div>
-    <div class="sig-box"><div class="sig-line">Parent/Guardian</div></div>
-  </div>
-  <div class="footer">EduManage Pro · ${school.schoolName||'School'} · Printed ${new Date().toLocaleString('en-GH')}</div>
-  <script>window.onload=function(){window.print();}<\/script>
-  </body></html>`);
-  win.document.close();
+      <p style="font-size:13px;color:var(--text-muted);">Class: <strong>${r.cls||pupil.cls}</strong> &nbsp;|&nbsp; Position: <strong>${r.position||'—'}</strong> / ${r.classSize||'—'}</p>
+      ${r.subjects && r.subjects.length ? `
+        <div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;">
+          ${r.subjects.map(sub=>`
+            <div style="background:var(--bg);border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-size:12px;font-weight:600;">${sub.name}</span>
+              <span style="font-size:14px;font-weight:800;color:${sub.total>=50?'var(--green)':'var(--red)'};">${sub.total||'—'}</span>
+            </div>`).join('')}
+        </div>` : ''}
+    </div>`).join('') + `</div>`;
 }
 
 function renderPortalExams() {
@@ -6288,121 +6226,44 @@ function renderPortalGallery() {
   const panel = document.getElementById('portalPanelGallery');
   if (!panel) return;
   const albums = state.albums||[];
-  if (!albums.length) {
-    panel.innerHTML = '<div class="card"><div style="text-align:center;padding:30px;color:var(--text-muted);"><i class="fas fa-images" style="font-size:32px;display:block;margin-bottom:10px;"></i>No gallery albums yet.</div></div>';
-    return;
-  }
-  const albumCards = albums.map(a => {
-    const allPhotos  = a.photos||[];
-    const realPhotos = allPhotos.filter(p => p.src && p.src !== '[photo-omitted]');
-    const total      = allPhotos.length;
-    let photoGrid;
-    if (realPhotos.length) {
-      const thumbs = realPhotos.slice(0,4).map(p => {
-        const safeSrc = p.src.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-        return '<img src="' + safeSrc + '" loading="lazy" style="width:100%;height:80px;object-fit:cover;border-radius:6px;cursor:pointer;" onclick="portalOpenPhoto(this.src)">';
-      }).join('');
-      const extra = realPhotos.length > 4 ? '<div style="display:flex;align-items:center;justify-content:center;height:80px;background:var(--blue-light);border-radius:6px;font-weight:700;color:var(--blue);">+' + (realPhotos.length-4) + ' more</div>' : '';
-      photoGrid = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:10px;">' + thumbs + extra + '</div>';
-    } else if (total > 0) {
-      photoGrid = '<div style="text-align:center;padding:14px 0;color:var(--text-muted);font-size:12px;"><i class="fas fa-images"></i> ' + total + ' photo' + (total!==1?'s':'') + ' in album</div>';
-    } else {
-      photoGrid = '<div style="text-align:center;padding:14px 0;color:var(--text-muted);font-size:12px;"><i class="fas fa-image"></i> No photos yet</div>';
-    }
-    return '<div class="card" style="padding:16px;">' +
-      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">' +
-        '<div style="font-size:26px;">' + (a.emoji||'\uD83D\uDDBC\uFE0F') + '</div>' +
-        '<div><div style="font-weight:700;font-size:14px;">' + a.name + '</div>' +
-        '<div style="font-size:11px;color:var(--text-muted);">' + total + ' photo' + (total!==1?'s':'') + '</div></div>' +
-      '</div>' + photoGrid + '</div>';
-  }).join('');
-
-  panel.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;">' + albumCards + '</div>' +
-    '<div id="portalLightbox" onclick="document.getElementById(\'portalLightbox\').style.display=\'none\'" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9999;align-items:center;justify-content:center;cursor:zoom-out;">' +
-    '<img id="portalLightboxImg" style="max-width:92vw;max-height:90vh;border-radius:10px;box-shadow:0 0 60px rgba(0,0,0,.7);">' +
-    '</div>';
+  if (!albums.length) { panel.innerHTML = `<div class="card"><div style="text-align:center;padding:30px;color:var(--text-muted);"><i class="fas fa-images" style="font-size:32px;display:block;margin-bottom:10px;"></i>No gallery albums yet.</div></div>`; return; }
+  panel.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;">` +
+    albums.map(a => `<div class="card" style="padding:16px;cursor:default;">
+      <div style="font-size:32px;text-align:center;margin-bottom:8px;">${a.emoji||'🖼️'}</div>
+      <h3 style="font-size:14px;font-weight:700;text-align:center;">${a.name}</h3>
+      <p style="font-size:12px;color:var(--text-muted);text-align:center;">${(a.photos||[]).length} photo${(a.photos||[]).length!==1?'s':''}</p>
+      ${a.photos&&a.photos.length ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:8px;">
+        ${a.photos.slice(0,4).map(p=>`<img src="${p.src}" style="width:100%;height:60px;object-fit:cover;border-radius:6px;" onclick="this.requestFullscreen?this.requestFullscreen():null">`).join('')}
+      </div>` : ''}
+    </div>`).join('') + `</div>`;
 }
-
-function portalToggleText(id) {
-  const div = document.getElementById(id);
-  const btn = document.getElementById('btn_' + id);
-  if (!div) return;
-  const showing = div.style.display !== 'none';
-  div.style.display = showing ? 'none' : 'block';
-  if (btn) btn.innerHTML = showing
-    ? '<i class="fas fa-book-open"></i> Read Content'
-    : '<i class="fas fa-chevron-up"></i> Hide Content';
-}
-
-function portalOpenPhoto(src) {
-  const lb  = document.getElementById('portalLightbox');
-  const img = document.getElementById('portalLightboxImg');
-  if (lb && img) { img.src = src; lb.style.display = 'flex'; }
-}
-
 
 function renderPortalResources() {
   const panel = document.getElementById('portalPanelResources');
   if (!panel) return;
   const pupil = _portalPupil();
+  // Students can see All Classes resources and resources for their specific class
   let res = (state.resources||[]).filter(r => r.cls==='All Classes' || !pupil || r.cls===pupil.cls);
-  if (!res.length) {
-    panel.innerHTML = '<div class="card"><div style="text-align:center;padding:30px;color:var(--text-muted);"><i class="fas fa-book-open" style="font-size:32px;display:block;margin-bottom:10px;"></i>No resources available yet.</div></div>';
-    return;
-  }
-  const typeIcon = {'Exam Paper':'fas fa-scroll','Textbook':'fas fa-book','Workbook':'fas fa-book-open',
-                    'Past Question':'fas fa-file-alt','Notes':'fas fa-sticky-note','Other':'fas fa-shapes'};
-  const extIcon  = {pdf:'fas fa-file-pdf',doc:'fas fa-file-word',docx:'fas fa-file-word',
-                    ppt:'fas fa-file-powerpoint',pptx:'fas fa-file-powerpoint',
-                    xls:'fas fa-file-excel',xlsx:'fas fa-file-excel',
-                    png:'fas fa-file-image',jpg:'fas fa-file-image',jpeg:'fas fa-file-image',txt:'fas fa-file-alt'};
-
-  const cards = res.map(r => {
-    let contentHtml = '';
-    if (r.contentType === 'file' && r.fileData) {
-      const ico = extIcon[r.fileExt||''] || 'fas fa-file';
-      const safeName = (r.fileName||r.title||'file').replace(/"/g,'&quot;');
-      contentHtml = '<a href="' + r.fileData + '" download="' + safeName + '" style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 12px;background:var(--blue-light);border-radius:8px;text-decoration:none;color:var(--blue);font-size:13px;font-weight:600;">' +
-        '<i class="' + ico + '"></i> Download ' + (r.fileExt||'File').toUpperCase() +
-        '<i class="fas fa-download" style="margin-left:auto;font-size:11px;"></i></a>';
-    } else if (r.contentType === 'text' && r.textContent) {
-      const escaped = r.textContent.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      const rid = 'restxt_' + r.id;
-      contentHtml = '<div style="margin-top:10px;">' +
-        '<button id="btn_' + rid + '" onclick="portalToggleText(\'' + rid + '\')" style="font-size:12px;font-weight:600;color:var(--blue);background:var(--blue-light);border:none;padding:6px 12px;border-radius:20px;cursor:pointer;">' +
-        '<i class="fas fa-book-open"></i> Read Content</button>' +
-        '<div id="' + rid + '" style="display:none;margin-top:8px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:13px;line-height:1.7;white-space:pre-wrap;max-height:260px;overflow-y:auto;">' + escaped + '</div></div>';
-    } else if (r.link) {
-      const isYT  = r.link.includes('youtube.com') || r.link.includes('youtu.be');
-      const isGD  = r.link.includes('drive.google.com');
-      const lIcon = isYT ? 'fab fa-youtube' : isGD ? 'fab fa-google-drive' : 'fas fa-external-link-alt';
-      const lCol  = isYT ? '#FF0000' : isGD ? '#4285F4' : 'var(--blue)';
-      const lLbl  = isYT ? 'Watch on YouTube' : isGD ? 'Open in Google Drive' : 'Open Resource';
-      contentHtml = '<a href="' + r.link + '" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;text-decoration:none;color:var(--text);font-size:13px;font-weight:600;">' +
-        '<i class="' + lIcon + '" style="color:' + lCol + ';"></i> ' + lLbl +
-        '<i class="fas fa-external-link-alt" style="margin-left:auto;font-size:10px;color:var(--text-muted);"></i></a>';
-    }
-    return '<div class="card" style="padding:14px;">' +
-      '<div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:4px;">' +
-        '<div style="width:38px;height:38px;border-radius:8px;background:var(--blue-light);color:var(--blue);display:grid;place-items:center;font-size:16px;flex-shrink:0;">' +
-          '<i class="' + (typeIcon[r.type]||'fas fa-file') + '"></i></div>' +
-        '<div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + r.title + '</div>' +
-        '<div style="font-size:11px;color:var(--text-muted);">' + r.type + (r.subject?' · '+r.subject:'') + '</div></div>' +
-      '</div>' +
-      '<div style="display:flex;flex-wrap:wrap;gap:5px;font-size:11px;margin-top:6px;">' +
-        (r.cls?'<span style="background:var(--blue-light);color:var(--blue);border-radius:20px;padding:1px 8px;">'+r.cls+'</span>':'') +
-        (r.term?'<span style="background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:1px 8px;">'+r.term+'</span>':'') +
-        (r.year?'<span style="background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:1px 8px;">'+r.year+'</span>':'') +
-      '</div>' + contentHtml + '</div>';
-  }).join('');
-  panel.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;">' + cards + '</div>';
+  if (!res.length) { panel.innerHTML = `<div class="card"><div style="text-align:center;padding:30px;color:var(--text-muted);"><i class="fas fa-book-open" style="font-size:32px;display:block;margin-bottom:10px;"></i>No resources available yet.</div></div>`; return; }
+  const typeIcon = {'Exam Paper':'fas fa-scroll','Textbook':'fas fa-book','Workbook':'fas fa-book-open','Past Question':'fas fa-file-alt','Notes':'fas fa-sticky-note','Other':'fas fa-shapes'};
+  panel.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;">` +
+    res.map(r => `<div class="card" style="padding:14px;">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;">
+        <div style="width:38px;height:38px;border-radius:8px;background:var(--blue-light);color:var(--blue);display:grid;place-items:center;font-size:16px;flex-shrink:0;">
+          <i class="${typeIcon[r.type]||'fas fa-file'}"></i>
+        </div>
+        <div><div style="font-weight:700;font-size:13px;">${r.title}</div><div style="font-size:11px;color:var(--text-muted);">${r.type}</div></div>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);">${r.subject?`<strong>${r.subject}</strong> · `:''} ${r.cls} ${r.term?'· '+r.term:''}</div>
+      ${r.author?`<div style="font-size:11px;color:var(--text-light);margin-top:4px;">${r.author}</div>`:''}
+    </div>`).join('') + `</div>`;
 }
-
 
 function renderPortalNotices() {
   const panel = document.getElementById('portalPanelNotices');
   if (!panel) return;
   const pupil = _portalPupil();
+  // Show announcements relevant to this pupil
   let notices = (state.announcements||[]).filter(a => {
     if (a.audience==='Staff') return false;
     if (a.audience==='Class' && pupil && a.cls!==pupil.cls) return false;

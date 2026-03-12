@@ -27,32 +27,87 @@
       <button class="btn-ghost" id="restoreSchoolBtn" style="width:100%;margin-top:8px;justify-content:center;font-size:12px;">
         <i class="fas fa-trash-restore"></i> Restore Deleted School
       </button>
+      <button class="btn-ghost" id="superAdminBtn" style="width:100%;margin-top:6px;justify-content:center;font-size:11px;opacity:.6;">
+        <i class="fas fa-shield-alt"></i> Admin Panel
+      </button>
       <p class="login-hint" style="margin-top:12px;">Each school's data is completely private and isolated.</p>
     </div>
   </div>
 
-  <!-- ─── MASTER PIN MODAL ─── -->
-  <div class="modal-overlay" id="masterPinModal" style="z-index:10001;">
-    <div class="modal" style="max-width:360px;">
+    <!-- ─── DELETE SCHOOL (SUPER ADMIN APPROVAL) MODAL ─── -->
+  <div class="modal-overlay" id="deleteSchoolModal" style="z-index:10003;">
+    <div class="modal" style="max-width:460px;">
       <div class="modal-head">
-        <h3 id="masterPinTitle"><i class="fas fa-lock"></i> System Access Required</h3>
-        <button class="modal-close" onclick="document.getElementById('masterPinModal').classList.remove('open')"><i class="fas fa-times"></i></button>
+        <h3><i class="fas fa-trash-alt" style="color:var(--red);"></i> Delete School — Admin Approval Required</h3>
+        <button class="modal-close" onclick="document.getElementById('deleteSchoolModal').classList.remove('open')"><i class="fas fa-times"></i></button>
       </div>
       <div class="modal-body">
-        <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;" id="masterPinDesc">Enter the Master PIN to continue.</p>
-        <div class="form-group">
-          <label>Master PIN</label>
-          <div class="password-input-wrap">
-            <input type="password" class="form-input" id="masterPinInput" placeholder="Enter PIN" maxlength="20" autocomplete="off"/>
-            <button type="button" onclick="const i=document.getElementById('masterPinInput');i.type=i.type==='password'?'text':'password'" class="pwd-toggle-btn"><i class="fas fa-eye"></i></button>
-          </div>
-          <p id="masterPinError" style="color:var(--red);font-size:12px;margin-top:6px;display:none;"><i class="fas fa-times-circle"></i> Incorrect PIN. Try again.</p>
+        <div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:13px;color:#dc2626;">
+          <i class="fas fa-exclamation-triangle"></i> You are about to delete <strong id="deleteSchoolNameLabel"></strong>. This action requires Super Admin approval. Data will be archived for 90 days.
         </div>
-        <p style="font-size:11px;color:var(--text-light);margin-top:4px;"><i class="fas fa-info-circle"></i> Default PIN: <strong>EduManage2024</strong> — change it in Settings after first login.</p>
+        <div id="deleteSchoolCodeRow">
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:10px;">Enter the Super Admin code to confirm this deletion:</p>
+          <div id="deleteSchoolCodeError" style="display:none;background:#fee2e2;color:#dc2626;border-radius:7px;padding:9px 13px;margin-bottom:12px;font-size:13px;">❌ Wrong code. Try again.</div>
+          <div style="display:flex;gap:8px;">
+            <input type="password" class="form-input" id="deleteSchoolCode" placeholder="Enter super admin code" style="flex:1;" onkeydown="if(event.key==='Enter')confirmDeleteSchool()"/>
+            <button class="btn-danger" onclick="confirmDeleteSchool()" style="background:var(--red);color:#fff;border:none;padding:0 18px;border-radius:var(--radius-sm);cursor:pointer;font-weight:700;"><i class="fas fa-trash"></i> Delete</button>
+          </div>
+        </div>
       </div>
       <div class="modal-foot">
-        <button class="btn-ghost" onclick="document.getElementById('masterPinModal').classList.remove('open')">Cancel</button>
-        <button class="btn-primary" id="masterPinConfirmBtn"><i class="fas fa-unlock"></i> Confirm</button>
+        <button class="btn-ghost" onclick="document.getElementById('deleteSchoolModal').classList.remove('open')">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── PASSWORD RECOVERY MODAL (Super Admin managed) ─── -->
+  <div class="modal-overlay" id="recoveryRequestModal" style="z-index:10003;">
+    <div class="modal" style="max-width:440px;">
+      <div class="modal-head">
+        <h3><i class="fas fa-key"></i> Forgot Username / Password?</h3>
+        <button class="modal-close" onclick="document.getElementById('recoveryRequestModal').classList.remove('open')"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:var(--blue);">
+          <i class="fas fa-info-circle"></i> Recovery requests are reviewed and resolved by the <strong>Super Admin</strong>. Submit your details below and you will be contacted.
+        </div>
+        <div id="recoveryFormError" style="display:none;background:#fee2e2;color:#dc2626;border-radius:7px;padding:9px 13px;margin-bottom:12px;font-size:13px;"></div>
+        <div class="form-group">
+          <label>School Name <span style="color:var(--red)">*</span></label>
+          <input type="text" class="form-input" id="recSchoolName" placeholder="Enter your school name"/>
+        </div>
+        <div class="form-group">
+          <label>Admin's Full Name <span style="color:var(--red)">*</span></label>
+          <input type="text" class="form-input" id="recAdminName" placeholder="Your registered admin name"/>
+        </div>
+        <div class="form-group">
+          <label>Contact Phone <span style="color:var(--red)">*</span></label>
+          <input type="tel" class="form-input" id="recPhone" placeholder="e.g. 0244123456"/>
+        </div>
+        <div class="form-group">
+          <label>Recovery Type</label>
+          <select class="form-input" id="recType">
+            <option value="username">Forgot Username</option>
+            <option value="password">Forgot Password</option>
+            <option value="both">Forgot Both</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn-ghost" onclick="document.getElementById('recoveryRequestModal').classList.remove('open')">Cancel</button>
+        <button class="btn-primary" onclick="submitRecoveryRequest()"><i class="fas fa-paper-plane"></i> Submit Request</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── RECOVERY SUCCESS MODAL ─── -->
+  <div class="modal-overlay" id="recoverySuccessModal" style="z-index:10004;">
+    <div class="modal" style="max-width:360px;text-align:center;">
+      <div class="modal-body" style="padding:28px 20px;">
+        <div style="font-size:52px;margin-bottom:14px;">📨</div>
+        <h3 style="color:var(--blue);margin-bottom:8px;">Request Submitted!</h3>
+        <p style="color:var(--text-muted);font-size:13px;">Your recovery request has been sent to the Super Admin. You will be contacted on your phone shortly with your login details.</p>
+        <button class="btn-primary" style="margin-top:18px;width:100%;" onclick="document.getElementById('recoverySuccessModal').classList.remove('open')"><i class="fas fa-check"></i> OK</button>
       </div>
     </div>
   </div>
@@ -76,36 +131,127 @@
 
   <!-- ─── REGISTER NEW SCHOOL MODAL ─── -->
   <div class="modal-overlay" id="registerSchoolModal" style="z-index:10000;">
-    <div class="modal" style="max-width:440px;">
+    <div class="modal" style="max-width:460px;">
       <div class="modal-head">
-        <h3><i class="fas fa-school"></i> Register New School</h3>
+        <h3><i class="fas fa-school"></i> Register Your School</h3>
         <button class="modal-close" id="closeRegisterModal"><i class="fas fa-times"></i></button>
       </div>
       <div class="modal-body">
-        <div class="form-group">
-          <label>School Name <span style="color:var(--red)">*</span></label>
-          <input type="text" class="form-input" id="newSchoolName" placeholder="e.g. Accra Primary School"/>
+        <div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--blue);">
+          <i class="fas fa-info-circle"></i> Your registration will be reviewed and <strong>approved within 24 hours</strong>. You will receive your login details once approved.
         </div>
-        <div class="form-group">
-          <label>Administrator's Full Name</label>
-          <input type="text" class="form-input" id="newSchoolAdmin" placeholder="e.g. Mr. Kwesi Appiah"/>
-        </div>
-        <div class="form-group">
-          <label>Admin Username <span style="color:var(--red)">*</span></label>
-          <input type="text" class="form-input" id="newSchoolUsername" placeholder="e.g. admin" autocomplete="off"/>
-        </div>
-        <div class="form-group">
-          <label>Admin Password <span style="color:var(--red)">*</span></label>
-          <div class="password-input-wrap">
-            <input type="password" class="form-input" id="newSchoolPassword" placeholder="Min. 6 characters" autocomplete="new-password"/>
-            <button type="button" id="toggleNewSchoolPwd" class="pwd-toggle-btn"><i class="fas fa-eye"></i></button>
+        <div id="registerFormError" style="display:none;background:#fee2e2;color:#dc2626;border-radius:7px;padding:9px 13px;margin-bottom:12px;font-size:13px;"></div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>School Name <span style="color:var(--red)">*</span></label>
+            <input type="text" class="form-input" id="newSchoolName" placeholder="e.g. Accra Primary School"/>
           </div>
-          <p style="font-size:11px;color:var(--text-light);margin-top:4px;">⚠️ Remember this — it cannot be recovered without the backup file.</p>
         </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Administrator's Full Name</label>
+            <input type="text" class="form-input" id="newSchoolAdmin" placeholder="e.g. Mr. Kwesi Appiah"/>
+          </div>
+          <div class="form-group">
+            <label>Contact Phone</label>
+            <input type="tel" class="form-input" id="newSchoolPhone" placeholder="e.g. 0244123456"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Admin Username <span style="color:var(--red)">*</span></label>
+            <input type="text" class="form-input" id="newSchoolUsername" placeholder="e.g. accraprimary" autocomplete="off"/>
+          </div>
+          <div class="form-group">
+            <label>Admin Password <span style="color:var(--red)">*</span></label>
+            <div class="password-input-wrap">
+              <input type="password" class="form-input" id="newSchoolPassword" placeholder="Min. 6 characters" autocomplete="new-password"/>
+              <button type="button" id="toggleNewSchoolPwd" class="pwd-toggle-btn"><i class="fas fa-eye"></i></button>
+            </div>
+          </div>
+        </div>
+        <p style="font-size:11px;color:var(--text-muted);margin-top:4px;"><i class="fas fa-lock" style="color:var(--blue)"></i> Remember your username and password — you'll need them to log in after approval.</p>
       </div>
       <div class="modal-foot">
         <button class="btn-ghost" id="cancelRegisterModal">Cancel</button>
-        <button class="btn-primary" id="confirmRegisterBtn"><i class="fas fa-check"></i> Register School</button>
+        <button class="btn-primary" id="confirmRegisterBtn"><i class="fas fa-paper-plane"></i> Submit Registration</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── REGISTRATION SUCCESS MODAL ─── -->
+  <div class="modal-overlay" id="regSuccessModal" style="z-index:10002;">
+    <div class="modal" style="max-width:380px;text-align:center;">
+      <div class="modal-body" style="padding:32px 24px;">
+        <div style="font-size:56px;margin-bottom:16px;">🎉</div>
+        <h3 style="margin-bottom:8px;color:var(--blue);">Registration Submitted!</h3>
+        <p style="color:var(--text-muted);font-size:14px;margin-bottom:16px;">
+          <strong id="regSuccessSchoolName"></strong> has been submitted for review.<br><br>
+          Your account will be <strong>activated within 24 hours</strong> once approved by the system administrator.
+        </p>
+        <div style="background:var(--bg);border-radius:8px;padding:12px;font-size:13px;color:var(--text-muted);text-align:left;">
+          <i class="fas fa-check-circle" style="color:#22c55e;"></i> Registration submitted<br>
+          <i class="fas fa-clock" style="color:#f59e0b;"></i> Awaiting admin approval<br>
+          <i class="fas fa-unlock" style="color:var(--blue-light);"></i> Then you can log in
+        </div>
+        <button class="btn-primary" style="margin-top:20px;width:100%;" onclick="document.getElementById('regSuccessModal').classList.remove('open')">
+          <i class="fas fa-check"></i> Got it
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── SUPER ADMIN PANEL MODAL ─── -->
+  <div class="modal-overlay" id="superAdminPanelModal" style="z-index:10002;">
+    <div class="modal" style="max-width:520px;">
+      <div class="modal-head">
+        <h3><i class="fas fa-shield-alt"></i> Super Admin Panel</h3>
+        <button class="modal-close" onclick="document.getElementById('superAdminPanelModal').classList.remove('open');document.getElementById('superAdminCodeRow').style.display='';document.getElementById('superAdminPanelBody').style.display='none';document.getElementById('superAdminCode').value='';"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-body">
+        <div id="superAdminCodeRow">
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">Enter your Super Admin code to manage school registrations.</p>
+          <div id="superAdminCodeError" style="display:none;background:#fee2e2;color:#dc2626;border-radius:7px;padding:9px 13px;margin-bottom:12px;font-size:13px;">❌ Wrong code. Try again.</div>
+          <div style="display:flex;gap:8px;">
+            <input type="password" class="form-input" id="superAdminCode" placeholder="Enter super admin code" style="flex:1;" onkeydown="if(event.key==='Enter')openSuperAdminPanel()"/>
+            <button class="btn-primary" onclick="openSuperAdminPanel()"><i class="fas fa-unlock"></i> Enter</button>
+          </div>
+        </div>
+        <div id="superAdminPanelBody" style="display:none;">
+          <!-- Tab switcher -->
+          <div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:16px;">
+            <button class="comm-tab active" id="saTabRegistrations" onclick="switchSATab('registrations')" style="font-size:13px;padding:10px 16px;"><i class="fas fa-clock" style="color:#f59e0b;"></i> Pending Registrations</button>
+            <button class="comm-tab" id="saTabRecovery" onclick="switchSATab('recovery')" style="font-size:13px;padding:10px 16px;"><i class="fas fa-key" style="color:var(--blue);"></i> Recovery Requests</button>
+            <button class="comm-tab" id="saTabDeleteReq" onclick="switchSATab('deleteReq')" style="font-size:13px;padding:10px 16px;"><i class="fas fa-trash-alt" style="color:var(--red);"></i> Delete Requests</button>
+          </div>
+
+          <!-- Registrations tab -->
+          <div id="saBodyRegistrations">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+              <h4 style="margin:0;"><i class="fas fa-clock" style="color:#f59e0b;"></i> Pending Registrations</h4>
+              <button class="btn-ghost" style="font-size:12px;" onclick="renderPendingSchoolsList()"><i class="fas fa-sync"></i> Refresh</button>
+            </div>
+            <div id="pendingSchoolsList"></div>
+          </div>
+
+          <!-- Recovery requests tab -->
+          <div id="saBodyRecovery" style="display:none;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+              <h4 style="margin:0;"><i class="fas fa-key" style="color:var(--blue);"></i> Credential Recovery Requests</h4>
+              <button class="btn-ghost" style="font-size:12px;" onclick="renderRecoveryRequests()"><i class="fas fa-sync"></i> Refresh</button>
+            </div>
+            <div id="recoveryRequestsList"></div>
+          </div>
+
+          <!-- Delete requests tab -->
+          <div id="saBodyDeleteReq" style="display:none;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+              <h4 style="margin:0;"><i class="fas fa-trash-alt" style="color:var(--red);"></i> Pending Delete Requests</h4>
+              <button class="btn-ghost" style="font-size:12px;" onclick="renderDeleteRequests()"><i class="fas fa-sync"></i> Refresh</button>
+            </div>
+            <div id="deleteRequestsList"></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -127,9 +273,10 @@
           <button type="button" id="toggleLoginPwd" class="pwd-toggle-btn"><i class="fas fa-eye"></i></button>
         </div>
       </div>
-      <div class="login-error" id="loginError" style="display:none;"><i class="fas fa-exclamation-circle"></i> Invalid username or password.</div>
+      <div class="login-error" id="loginError" style="display:none;"><i class="fas fa-exclamation-circle"></i> <span id="loginErrorMsg">Wrong username or password.</span></div>
       <button class="btn-primary" id="loginBtn" style="width:100%;margin-top:16px;justify-content:center;"><i class="fas fa-sign-in-alt"></i> Sign In</button>
       <button class="btn-ghost" id="backToSchoolsBtn" style="width:100%;margin-top:8px;justify-content:center;"><i class="fas fa-arrow-left"></i> Back to Schools</button>
+      <button class="btn-ghost" onclick="document.getElementById('recoveryRequestModal').classList.add('open')" style="width:100%;margin-top:6px;justify-content:center;font-size:12px;opacity:.65;"><i class="fas fa-key"></i> Forgot Username / Password?</button>
     </div>
   </div>
 
@@ -1020,13 +1167,13 @@
           <div class="form-group"><label>Headmaster's Name</label><input type="text" class="form-input" id="principalName" placeholder="e.g. Mr. Kwesi Appiah"/></div>
           <div class="form-group"><label>GES Circuit / District</label><input type="text" class="form-input" id="gesDistrict" placeholder="e.g. Accra Metro Circuit A"/></div>
           <div class="form-group"><label>School Motto</label><input type="text" class="form-input" id="schoolMotto" placeholder="e.g. Excellence in Education"/></div>
-          <div class="form-group" style="background:var(--yellow-light,#fef9c3);border:1px solid var(--yellow,#f59e0b);border-radius:8px;padding:12px;">
+          <div class="form-group" id="masterPinSettingGroup" style="display:none;background:var(--yellow-light,#fef9c3);border:1px solid var(--yellow,#f59e0b);border-radius:8px;padding:12px;">
             <label style="color:#92400e;font-weight:700;"><i class="fas fa-lock"></i> Master PIN (System Access)</label>
             <div style="display:flex;gap:8px;margin-top:6px;">
               <input type="password" class="form-input" id="masterPinSetting" placeholder="Enter new Master PIN" autocomplete="off" style="flex:1;"/>
               <button type="button" class="btn-ghost" onclick="changeMasterPin()" style="white-space:nowrap;"><i class="fas fa-key"></i> Change PIN</button>
             </div>
-            <p style="font-size:11px;color:#92400e;margin-top:4px;">This PIN controls who can register or delete schools. Keep it secret.</p>
+            <p style="font-size:11px;color:#92400e;margin-top:4px;">This PIN controls who can register or delete schools. Keep it secret — only Admins can see this.</p>
           </div>
           <button class="btn-primary" id="saveSettingsBtn" style="margin-top:12px;"><i class="fas fa-save"></i> Save Settings</button>
           <div class="save-msg" id="settingsSaved" style="display:none;"><i class="fas fa-check-circle"></i> Settings saved!</div>
