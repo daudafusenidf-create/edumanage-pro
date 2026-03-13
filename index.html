@@ -2587,6 +2587,8 @@
     import { initializeApp }                          from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import { getDatabase, ref, set, get, onValue, off, child, update }
                                                       from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+    import { getStorage, ref as sRef, uploadBytes, getDownloadURL, deleteObject }
+                                                      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
     const firebaseConfig = {
       apiKey:            "AIzaSyDPJH-3D1cbHO6el13qWj36DBc9DT_j9sQ",
@@ -2598,8 +2600,9 @@
       appId:             "1:346727146216:web:ddad38247338bf6bd71f5d"
     };
 
-    const fbApp = initializeApp(firebaseConfig);
-    const db    = getDatabase(fbApp);
+    const fbApp   = initializeApp(firebaseConfig);
+    const db      = getDatabase(fbApp);
+    const storage = getStorage(fbApp);
 
     // ── Expose Firebase helpers to global scope for script.js ──
     window._fb = {
@@ -2611,6 +2614,29 @@
       onValue: (ref, cb, err) => onValue(ref, cb, err),
       off:    (ref)           => off(ref),
     };
+
+    // ── Firebase Storage helpers ──
+    // uploadToStorage(path, file) → resolves with public download URL
+    // deleteFromStorage(url)      → deletes by download URL (best-effort)
+    window._fbStorage = {
+      upload: async (storagePath, file) => {
+        const fileRef = sRef(storage, storagePath);
+        await uploadBytes(fileRef, file);
+        return await getDownloadURL(fileRef);
+      },
+      delete: async (url) => {
+        try {
+          // Extract the storage path from the download URL
+          const decodedUrl = decodeURIComponent(url);
+          const match = decodedUrl.match(/\/o\/(.+?)\?/);
+          if (!match) return;
+          const path = match[1];
+          const fileRef = sRef(storage, path);
+          await deleteObject(fileRef);
+        } catch(e) { console.warn('[Storage] delete failed:', e); }
+      }
+    };
+
     window._fbReady = true;
   </script>
   <script src="script.js" defer></script>

@@ -2156,15 +2156,43 @@ function restoreStudent(id) {
 }
 
 function initStudentPhotoUpload() {
-  document.getElementById('sPhotoInput').addEventListener('change', e=>{
+  document.getElementById('sPhotoInput').addEventListener('change', async e => {
     const file = e.target.files[0]; if (!file) return;
     if (!file.type.startsWith('image/')) { showToast('⚠️ Select an image file.'); return; }
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const prev = document.getElementById('sPhotoPreview');
-      prev.src = ev.target.result; prev.style.display='block'; prev.dataset.photo=ev.target.result;
-    };
-    reader.readAsDataURL(file);
+
+    const prev = document.getElementById('sPhotoPreview');
+
+    // Show a local preview immediately for responsiveness
+    const localUrl = URL.createObjectURL(file);
+    prev.src = localUrl; prev.style.display = 'block';
+
+    // If Firebase Storage is available, upload and store the permanent URL
+    if (window._fbStorage && window._fbReady && _isOnline) {
+      try {
+        showToast('⏳ Uploading photo…');
+        const schoolId = _currentSchoolKey ? _currentSchoolKey.replace('edumanage_school_', '') : 'unknown';
+        const ext      = file.name.split('.').pop() || 'jpg';
+        const path     = `schools/${schoolId}/student_photos/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+        const url      = await window._fbStorage.upload(path, file);
+        prev.src = url;
+        prev.dataset.photo = url;   // permanent URL — stored in student record
+        showToast('✅ Photo uploaded to cloud!');
+      } catch(err) {
+        console.warn('[Storage] Student photo upload failed:', err);
+        // Fall back: read as base64 so the student can still be saved locally
+        const reader = new FileReader();
+        reader.onload = ev => { prev.dataset.photo = ev.target.result; };
+        reader.readAsDataURL(file);
+        showToast('⚠️ Cloud upload failed — photo saved locally only.');
+      }
+    } else {
+      // Offline or Storage not ready — fall back to base64
+      const reader = new FileReader();
+      reader.onload = ev => {
+        prev.src = ev.target.result; prev.dataset.photo = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
   });
 }
 
@@ -4443,25 +4471,47 @@ function initGallery() {
     currentAlbumId = null;
     renderGallery();
   });
-  document.getElementById('photoUploadInput').addEventListener('change', e=>{
+  document.getElementById('photoUploadInput').addEventListener('change', async e => {
     const album = state.albums.find(a=>a.id===currentAlbumId);
     if (!album) return;
-    const files = Array.from(e.target.files);
-    let loaded = 0;
-    files.forEach(file=>{
-      if (!file.type.startsWith('image/')) return;
-      const reader = new FileReader();
-      reader.onload = ev => {
-        album.photos.push({ src: ev.target.result, name: file.name });
-        loaded++;
-        if (loaded === files.length) {
-          renderAlbumPhotos(album);
-          showToast(`✅ ${loaded} photo(s) uploaded!`);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
+    const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
+    if (!files.length) return;
     e.target.value = '';
+
+    let uploaded = 0;
+    showToast(`⏳ Uploading ${files.length} photo(s)…`);
+
+    for (const file of files) {
+      let src;
+      if (window._fbStorage && window._fbReady && _isOnline) {
+        try {
+          const schoolId = _currentSchoolKey ? _currentSchoolKey.replace('edumanage_school_', '') : 'unknown';
+          const ext  = file.name.split('.').pop() || 'jpg';
+          const path = `schools/${schoolId}/gallery/${album.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+          src = await window._fbStorage.upload(path, file);
+        } catch(err) {
+          console.warn('[Storage] Gallery photo upload failed:', err);
+          // Fall back to base64 for this file
+          src = await new Promise(res => {
+            const r = new FileReader();
+            r.onload = ev => res(ev.target.result);
+            r.readAsDataURL(file);
+          });
+        }
+      } else {
+        src = await new Promise(res => {
+          const r = new FileReader();
+          r.onload = ev => res(ev.target.result);
+          r.readAsDataURL(file);
+        });
+      }
+      album.photos.push({ src, name: file.name });
+      uploaded++;
+    }
+
+    renderAlbumPhotos(album);
+    saveToDB();
+    showToast(`✅ ${uploaded} photo(s) uploaded!`);
   });
   document.getElementById('printAllPhotosBtn').addEventListener('click',()=>{
     const album = state.albums.find(a=>a.id===currentAlbumId);
@@ -4822,7 +4872,7 @@ function initSettings() {
   // Render theme swatches whenever settings section opens
   renderThemeSwatches();
 
-  document.getElementById('saveSettingsBtn').addEventListener('click',()=>{
+  document.getElementById('saveSettingsBtn').addEventListener('click', async () => {
     s.schoolName=document.getElementById('schoolName').value;
     s.session=document.getElementById('sessionYear').value;
     s.address=document.getElementById('schoolAddress').value;
@@ -4830,10 +4880,48 @@ function initSettings() {
     s.district=document.getElementById('gesDistrict').value;
     s.motto=document.getElementById('schoolMotto').value;
     document.getElementById('sidebarSchoolName').textContent=s.schoolName;
-    const d=document.getElementById('settingsSaved');
-    d.style.display='flex'; setTimeout(()=>d.style.display='none',3000);
-    autosave();
-    showToast('✅ School settings saved!');
+
+    // Cancel any pending autosave so we control the save ourselves
+    clearTimeout(_saveTimer);
+
+    // Show "Saving…" state immediately
+    const d = document.getElementById('settingsSaved');
+    d.style.display = 'flex';
+    d.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i> Saving to cloud…';
+
+    // Save immediately (not deferred) and wait for Firebase confirmation
+    const savedAt = Date.now();
+    const schoolId = _currentSchoolKey ? _currentSchoolKey.replace('edumanage_school_', '') : null;
+    saveToDB(); // writes to localStorage + triggers Firebase push
+
+    if (window._fbReady && _isOnline && _fbDataLoaded && schoolId) {
+      // Poll Firebase once to confirm the write landed
+      try {
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('timeout')), 8000);
+          window._fb.get(fbSchoolPath(schoolId)).then(snap => {
+            clearTimeout(timeout);
+            const fbSavedAt = snap.exists() ? (snap.val().savedAt || 0) : 0;
+            if (fbSavedAt >= savedAt) resolve();
+            else reject(new Error('not yet synced'));
+          }).catch(reject);
+        });
+        // Firebase confirmed — show success
+        d.innerHTML = '<i class="fas fa-check-circle" style="color:#22c55e;margin-right:6px;"></i> Saved to all devices';
+        setTimeout(() => d.style.display = 'none', 3000);
+        showToast('✅ School settings saved to cloud — all devices will update.');
+      } catch(err) {
+        // Firebase didn't confirm in time — warn clearly
+        d.innerHTML = '<i class="fas fa-exclamation-triangle" style="color:#f59e0b;margin-right:6px;"></i> Saved locally only — check connection';
+        setTimeout(() => d.style.display = 'none', 5000);
+        showToast('⚠️ Settings saved on this device only. Check your internet connection and save again.');
+      }
+    } else {
+      // Offline
+      d.innerHTML = '<i class="fas fa-wifi" style="color:#f59e0b;margin-right:6px;"></i> Offline — saved locally';
+      setTimeout(() => d.style.display = 'none', 4000);
+      showToast('📴 Offline — settings saved on this device. Will sync when connected.');
+    }
   });
 }
 
@@ -4846,13 +4934,34 @@ function initLogo() {
 
   if (state.schoolLogo) applyLogo(state.schoolLogo);
 
-  fileInput.addEventListener('change',e=>{
+  fileInput.addEventListener('change', async e => {
     const file=e.target.files[0]; if (!file) return;
     if (!file.type.startsWith('image/')){ showToast('⚠️ Please select an image file.'); return; }
     if (file.size>2*1024*1024){ showToast('⚠️ Image must be under 2MB.'); return; }
-    const reader=new FileReader();
-    reader.onload=ev=>{ state.schoolLogo=ev.target.result; applyLogo(ev.target.result); showToast('✅ School logo uploaded!'); };
-    reader.readAsDataURL(file);
+
+    if (window._fbStorage && window._fbReady && _isOnline) {
+      try {
+        showToast('⏳ Uploading logo…');
+        const schoolId = _currentSchoolKey ? _currentSchoolKey.replace('edumanage_school_', '') : 'unknown';
+        const ext  = file.name.split('.').pop() || 'png';
+        const path = `schools/${schoolId}/logo/school_logo.${ext}`;
+        const url  = await window._fbStorage.upload(path, file);
+        state.schoolLogo = url;
+        applyLogo(url);
+        saveToDB();
+        showToast('✅ School logo uploaded to cloud!');
+      } catch(err) {
+        console.warn('[Storage] Logo upload failed:', err);
+        // Fall back to base64
+        const reader=new FileReader();
+        reader.onload=ev=>{ state.schoolLogo=ev.target.result; applyLogo(ev.target.result); saveToDB(); showToast('✅ School logo uploaded (locally)!'); };
+        reader.readAsDataURL(file);
+      }
+    } else {
+      const reader=new FileReader();
+      reader.onload=ev=>{ state.schoolLogo=ev.target.result; applyLogo(ev.target.result); saveToDB(); showToast('✅ School logo uploaded!'); };
+      reader.readAsDataURL(file);
+    }
   });
 
   removeBtn.addEventListener('click',()=>{
