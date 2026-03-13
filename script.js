@@ -1,7 +1,10 @@
 /* ════════════════════════════════════════
    EduManage Pro — GES Edition
    Full Application Logic
+   PATCHED VERSION — v2026.SYNC.FIXED
+   Verify live: open browser console and type: console.log(window._EDUMANAGE_VERSION)
 ════════════════════════════════════════ */
+window._EDUMANAGE_VERSION = 'v2026.SYNC.FIXED — DO NOT OVERWRITE WITH OLD FILES';
 
 // ════════════════════════════════════════
 // MULTI-SCHOOL DATABASE ARCHITECTURE
@@ -76,8 +79,13 @@ function startRealtimeSync(schoolId) {
     // Always mark as loaded when we receive any Firebase data
     if (!_fbDataLoaded) {
       _fbDataLoaded = true;
-      // Set to now so immediate saves after first load don't echo back unnecessarily
-      _fbKnownSavedAt = Date.now();
+      // *** CRITICAL FIX — DO NOT REVERT ***
+      // Must use fbSavedAt here, NOT Date.now().
+      // Date.now() sets _fbKnownSavedAt to "right now", so the guard
+      // (savedAt > _fbKnownSavedAt) in saveToDB() always fails for saves
+      // made within milliseconds of login — Firebase push is silently skipped
+      // and data saves to localStorage only, never reaching other devices.
+      _fbKnownSavedAt = fbSavedAt;
     }
     // Track highest savedAt seen from Firebase for subsequent syncs
     if (fbSavedAt > _fbKnownSavedAt) _fbKnownSavedAt = fbSavedAt;
