@@ -40,7 +40,8 @@ function getSchoolKey(schoolId) {
 // Runtime state
 let _isOnline      = navigator.onLine;
 let _fbListener     = null;
-let _fbSyncPaused   = false;
+let _fbPauseIncoming = false; // suppress onValue echo after we write
+let _fbPauseOutgoing = false; // block push during startup window
 let _fbDataLoaded   = false; // true only after we've confirmed our data is in sync with Firebase
 let _fbKnownSavedAt = 0;    // savedAt timestamp last seen on Firebase — never push older data than this
 
@@ -81,7 +82,7 @@ function startRealtimeSync(schoolId) {
     // Track highest savedAt seen from Firebase for subsequent syncs
     if (fbSavedAt > _fbKnownSavedAt) _fbKnownSavedAt = fbSavedAt;
 
-    if (_fbSyncPaused) return; // We just wrote this ourselves — skip echo
+    if (_fbPauseIncoming) return; // suppress echo of our own write
     if (fbSavedAt <= localSavedAt) return; // Local is already up to date
 
     // Firebase has newer data — apply it
@@ -191,12 +192,12 @@ async function loadSchoolDataFromFirebase(schoolId) {
 
 function _applyDataToState(data) {
   const merge = (key, def) => { if (data[key] !== undefined) state[key] = data[key]; else if (state[key]===undefined) state[key]=def; };
-  merge('students',[]); merge('fees',[]); merge('teachers',[]); merge('classes',[]);
+  merge('students',[]); merge('fees',[]); merge('feeStructure',[]); merge('teachers',[]); merge('classes',[]);
   merge('albums',[]); merge('reports',[]); merge('weeklyRecords',[]); merge('attendance',[]);
   merge('settings',{}); merge('users',[]); merge('admissions',[]); merge('expenditures',[]);
   merge('resources',[]); merge('exams',[]); merge('transfers',[]); merge('announcements',[]);
   merge('parentNotifications',[]); merge('backupHistory',[]);
-  merge('nextStudentId',1); merge('nextFeeId',1); merge('nextTeacherId',1);
+  merge('nextStudentId',1); merge('nextFeeId',1); merge('nextReceiptId',1); merge('nextTeacherId',1);
   merge('nextClassId',1); merge('nextUserId',1); merge('nextResourceId',1);
   merge('nextExamId',1); merge('nextAlbumId',1); merge('nextAttendanceId',1);
   merge('nextWeeklyId',1); merge('nextTransferId',1); merge('nextAnnouncementId',1);
@@ -227,7 +228,7 @@ async function submitSchoolRegistration(name, adminName, adminUser, adminPass, p
   const schoolKey = getSchoolKey(schoolId);
 
   const freshData = {
-    students:[], fees:[], teachers:[], classes:[
+    students:[], fees:[], feeStructure:[], teachers:[], classes:[
       {id:1,name:'KG1',level:'Kindergarten',teacher:''},{id:2,name:'KG2',level:'Kindergarten',teacher:''},
       {id:3,name:'P1',level:'Primary',teacher:''},{id:4,name:'P2',level:'Primary',teacher:''},
       {id:5,name:'P3',level:'Primary',teacher:''},{id:6,name:'P4',level:'Primary',teacher:''},
@@ -241,7 +242,7 @@ async function submitSchoolRegistration(name, adminName, adminUser, adminPass, p
       session: new Date().getFullYear()+'/'+(new Date().getFullYear()+1),
       address:'', principal:adminName||'Administrator', district:'', motto:'' },
     users:[{ id:1, username:adminUser, password:adminPass, role:'Admin', name:adminName||adminUser, active:false }],
-    nextStudentId:1,nextFeeId:1,nextTeacherId:1,nextClassId:12,
+    nextStudentId:1,nextFeeId:1,nextReceiptId:1,nextTeacherId:1,nextClassId:12,
     nextAlbumId:1,nextWeeklyId:1,nextAttendanceId:1,nextUserId:2,
     nextResourceId:1,nextExamId:1,nextTransferId:1,nextAnnouncementId:1,
     nextPNId:1,nextAdmissionId:1,nextExpenditureId:1,
@@ -716,6 +717,7 @@ function saveToDB() {
     const data = {
       students: state.students,
       fees: state.fees,
+      feeStructure: state.feeStructure||[],
       teachers: state.teachers,
       classes: state.classes,
       albums: state.albums.map(a=>({...a, photos:(a.photos||[]).map(p=>({name:p.name,src:p.src&&p.src.length>500000?'[photo-omitted]':p.src}))})),
@@ -731,6 +733,7 @@ function saveToDB() {
       nextAdmissionId: state.nextAdmissionId,
       nextStudentId: state.nextStudentId,
       nextFeeId: state.nextFeeId,
+      nextReceiptId: state.nextReceiptId||1,
       nextTeacherId: state.nextTeacherId,
       nextClassId: state.nextClassId,
       nextAlbumId: state.nextAlbumId,
@@ -763,19 +766,19 @@ function saveToDB() {
     //    savedAt > _fbKnownSavedAt: only push if we loaded data before this moment
     //    (on fresh page load _fbKnownSavedAt=0, so we wait until loadSchoolDataFromFirebase
     //     sets it, after which any save with a newer timestamp is legitimate)
-    if (window._fbReady && _isOnline && _fbDataLoaded && !_fbSyncPaused && savedAt > _fbKnownSavedAt) {
+    if (window._fbReady && _isOnline && _fbDataLoaded && !_fbPauseOutgoing && savedAt > _fbKnownSavedAt) {
       const schoolId = _currentSchoolKey.replace('edumanage_school_', '');
       showSyncStatus('saving');
-      _fbSyncPaused = true; // Block our own onValue echo while we write
+      _fbPauseIncoming = true; // suppress our own echo
       _fbKnownSavedAt = savedAt; // Update our known timestamp immediately
       window._fb.set(fbSchoolPath(schoolId), data)
         .then(() => {
           showSyncStatus('online');
-          setTimeout(() => { _fbSyncPaused = false; }, 2000);
+          setTimeout(() => { _fbPauseIncoming = false; }, 2000);
         })
         .catch(e => {
           console.warn('[FB] Save to Firebase failed:', e);
-          _fbSyncPaused = false;
+          _fbPauseIncoming = false;
           _fbKnownSavedAt = savedAt - 1; // Roll back so next save retries
           showSyncStatus('offline');
           showToast('⚠️ Cloud save failed — data saved locally only.');
@@ -826,6 +829,8 @@ function loadSchoolData(schoolKey) {
     if (data.nextAdmissionId) state.nextAdmissionId = data.nextAdmissionId;
     if (data.nextStudentId)    state.nextStudentId    = data.nextStudentId;
     if (data.nextFeeId)        state.nextFeeId        = data.nextFeeId;
+    if (data.nextReceiptId)   state.nextReceiptId   = data.nextReceiptId;
+    if (data.feeStructure)     state.feeStructure     = data.feeStructure;
     if (data.nextTeacherId)    state.nextTeacherId    = data.nextTeacherId;
     if (data.nextClassId)      state.nextClassId      = data.nextClassId;
     if (data.nextAlbumId)      state.nextAlbumId      = data.nextAlbumId;
@@ -1111,29 +1116,74 @@ function autoFillFeeFromPupil(pupilId) {
     document.getElementById('feeAutoFilledInfo').style.display = 'none';
     document.getElementById('feeExistingWarning').style.display = 'none';
     document.getElementById('fDue').value = '';
-    document.getElementById('fPaid').value = '';
+    const arrEl2 = document.getElementById('fArrearsRow');
+    if (arrEl2) { arrEl2.style.display='none'; arrEl2.dataset.arrears='0'; }
+    _feePaymentDraft = []; renderPaymentLogInModal();
     return;
   }
   const p = state.students.find(s => s.id === parseInt(pupilId));
   if (!p) return;
-
-  document.getElementById('fStudentName').value = `${p.first} ${p.last}`;
+  const name = `${p.first} ${p.last}`;
+  document.getElementById('fStudentName').value = name;
   document.getElementById('fClass').value = p.cls;
   document.getElementById('feeAutoFilledInfo').style.display = 'flex';
 
-  // Check if a fee record already exists for this pupil
-  const existing = state.fees.find(f => f.student === `${p.first} ${p.last}` && f.cls === p.cls);
+  const term = document.getElementById('fTerm')?.value || state.settings.term || 'First Term';
+  const year = state.settings.session || '';
+
+  // ── Auto-fill fee from structure table (read-only — teachers cannot override) ──
+  const structAmt = getFeeFromStructure(p.cls, term, year);
+  const fDueEl = document.getElementById('fDue');
+  const fDueNotice = document.getElementById('fDueStructureNotice');
+  if (structAmt !== null) {
+    fDueEl.value = structAmt;
+    fDueEl.readOnly = true;
+    fDueEl.style.background = 'var(--bg-light)';
+    fDueEl.style.color = 'var(--text-muted)';
+    fDueEl.style.cursor = 'not-allowed';
+    fDueEl.title = 'Set in Fee Structure — cannot be changed here';
+    if (fDueNotice) fDueNotice.style.display = 'block';
+  } else {
+    fDueEl.readOnly = false;
+    fDueEl.style.background = '';
+    fDueEl.style.color = '';
+    fDueEl.style.cursor = '';
+    fDueEl.title = '';
+    if (fDueNotice) fDueNotice.style.display = 'none';
+    // No structure set — warn admin
+    showToast('⚠️ No fee set for ' + p.cls + ' · ' + term + '. Set it in Fee Structure first.');
+  }
+
+  // Check if a fee record already exists for this pupil THIS term
+  const existing = state.fees.find(f => (f.studentId===p.id || f.student===name) && f.term===term);
   if (existing) {
     document.getElementById('fEditId').value = existing.id;
-    document.getElementById('fDue').value = existing.due;
-    document.getElementById('fPaid').value = existing.paid;
+    // Always use structure amount, not stored f.due
+    if (structAmt !== null) fDueEl.value = structAmt;
+    else fDueEl.value = existing.due;
+    _feePaymentDraft = existing.payments ? [...existing.payments]
+                     : (existing.paid>0 ? [{amt:existing.paid, date:existing.createdAt?.slice(0,10)||new Date().toISOString().slice(0,10), note:'', method:'Cash', receiptNo:'—'}] : []);
+    const arrEl = document.getElementById('fArrearsRow');
+    if (arrEl) {
+      const arrears = existing.arrears || 0;
+      arrEl.dataset.arrears = arrears;
+      if (arrears > 0) { arrEl.style.display='block'; document.getElementById('fArrearsAmt').textContent=fmt(arrears); }
+      else arrEl.style.display='none';
+    }
     document.getElementById('feeExistingWarning').style.display = 'block';
   } else {
     document.getElementById('fEditId').value = '';
-    document.getElementById('fDue').value = '';
-    document.getElementById('fPaid').value = '';
+    _feePaymentDraft = [];
+    const arrears = getArrearsForPupil(p.id, name, term);
+    const arrEl = document.getElementById('fArrearsRow');
+    if (arrEl) {
+      arrEl.dataset.arrears = arrears;
+      if (arrears > 0) { arrEl.style.display='block'; document.getElementById('fArrearsAmt').textContent=fmt(arrears); }
+      else arrEl.style.display='none';
+    }
     document.getElementById('feeExistingWarning').style.display = 'none';
   }
+  renderPaymentLogInModal();
 }
 
 /** Auto-fill fee bill modal from pupil selection */
@@ -1147,11 +1197,60 @@ function autoFillBillFromPupil(pupilId) {
 
 /** Auto-fill report modal from pupil selection */
 function autoFillReportFromPupil(pupilId) {
-  if (!pupilId) return;
+  if (!pupilId) {
+    // Clear form when pupil deselected
+    ['rStudentName','rClassSize','rPosition','rDaysPresent','rTotalDays','rNextTerm','rRemark','rHMRemark','rInterest'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+    _addedSubjects=[]; renderSubjectRows();
+    const notice = document.getElementById('rExistingNotice');
+    if (notice) notice.style.display='none';
+    // Always clear edit index when pupil is deselected
+    const editIdx = document.getElementById('rEditIndex');
+    if (editIdx) editIdx.value = '';
+    document.getElementById('generateReportCard').innerHTML = '<i class="fas fa-file-circle-check"></i> Generate GES Report Card';
+    document.getElementById('cancelEditReportBtn').style.display = 'none';
+    return;
+  }
   const p = state.students.find(s => s.id === parseInt(pupilId));
   if (!p) return;
+
+  // ── CRITICAL: Clear the edit index before checking for existing reports.
+  // Without this, a stale rEditIndex from a previously-edited student can
+  // cause the new student's report to overwrite the old one.
+  document.getElementById('rEditIndex').value = '';
+  document.getElementById('generateReportCard').innerHTML = '<i class="fas fa-file-circle-check"></i> Generate GES Report Card';
+  document.getElementById('cancelEditReportBtn').style.display = 'none';
+
   document.getElementById('rStudentName').value = `${p.first} ${p.last}`;
   document.getElementById('rClass').value = p.cls;
+
+  // Check if a report already exists for this student + current term + year
+  checkAndLoadExistingReport(p.id, `${p.first} ${p.last}`);
+}
+
+function checkAndLoadExistingReport(studentId, studentName) {
+  const term = document.getElementById('rTerm')?.value || 'First Term';
+  const year = document.getElementById('rYear')?.value || state.settings.session || '';
+  const existing = state.reports.find(r =>
+    (r.studentId === studentId || r.name === studentName) &&
+    r.term === term && r.year === year
+  );
+  const notice = document.getElementById('rExistingNotice');
+  if (existing) {
+    const existingIdx = state.reports.indexOf(existing);
+    loadReportIntoForm(existing, existingIdx);
+    if (notice) {
+      notice.style.display = 'block';
+      const noticeText = notice.querySelector('#rExistingNoticeText') || notice.querySelector('span');
+      if (noticeText) noticeText.textContent = `An existing report was found for ${studentName} — ${term} ${year}. Scores have been loaded. Click Update Report Card to save changes.`;
+    }
+    showToast(`📋 Existing report loaded for ${studentName} — ${term}`);
+  } else {
+    // Clear scores for fresh entry
+    _addedSubjects = []; renderSubjectRows();
+    document.getElementById('rEditIndex').value = '';
+    document.getElementById('generateReportCard').innerHTML = '<i class="fas fa-file-circle-check"></i> Generate GES Report Card';
+    if (notice) notice.style.display = 'none';
+  }
 }
 
 /** When a new pupil is saved, auto-create a placeholder fee record */
@@ -1689,7 +1788,8 @@ function renderSubjectRows() {
   if (hint) hint.style.display = 'none';
   if (countEl) countEl.textContent = _addedSubjects.length + ' subject' + (_addedSubjects.length !== 1 ? 's' : '');
 
-  grid.innerHTML = _addedSubjects.map(sub => {
+  // Show newest subject at TOP so user never needs to scroll up to the picker
+  grid.innerHTML = [..._addedSubjects].reverse().map(sub => {
     const rowId = getSubjectRowId(sub);
     return `<div class="subject-input-item" id="${rowId}" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:8px;background:var(--bg-light);">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
@@ -1747,11 +1847,17 @@ function addSubjectFromPicker() {
   _addedSubjects.push(sub);
   picker.value = '';
   renderSubjectRows();
-  // Focus the class score input of the newly added subject
+  // Scroll to the new subject row and focus its score input
   setTimeout(() => {
     const inp = document.querySelector(`.cls-score[data-subject="${sub}"]`);
-    if (inp) inp.focus();
-  }, 50);
+    if (inp) {
+      inp.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      inp.focus();
+    }
+    // Also scroll the picker row into view so Add button stays visible
+    const pickerRow = picker.closest('div');
+    if (pickerRow) pickerRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, 80);
 }
 
 function removeSubject(sub) {
@@ -1780,9 +1886,21 @@ function initReportSection() {
     document.getElementById('rEditIndex').value = '';
     document.getElementById('generateReportCard').innerHTML = '<i class="fas fa-file-circle-check"></i> Generate GES Report Card';
     document.getElementById('cancelEditReportBtn').style.display = 'none';
-    ['rStudentName','rClassSize','rPosition','rDaysPresent','rTotalDays','rNextTerm','rRemark','rHMRemark','rInterest'].forEach(id => document.getElementById(id).value = '');
-    showToast('Edit cancelled.');
+    const notice = document.getElementById('rExistingNotice');
+    if (notice) notice.style.display='none';
+    ['rStudentName','rClassSize','rPosition','rDaysPresent','rTotalDays','rNextTerm','rRemark','rHMRemark','rInterest'].forEach(id => {const el=document.getElementById(id);if(el)el.value='';});
+    const sel = document.getElementById('rStudentSelect'); if(sel) sel.value='';
+    showToast('Cleared. Ready for next report.');
   });
+
+  // When term or year changes while a pupil is selected → re-check for existing report
+  ['rTerm','rYear'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', () => {
+      const sel = document.getElementById('rStudentSelect');
+      if (sel && sel.value) autoFillReportFromPupil(sel.value);
+    });
+  });
+
   renderSavedReports();
   document.getElementById('rYear').value = state.settings.session;
   refreshAllPupilDropdowns();
@@ -1926,42 +2044,380 @@ function generateGESReportCard(editIndex) {
   document.getElementById('reportCardOutput').scrollIntoView({behavior:'smooth'});
 
   // Full data saved for edit capability
+  // Resolve studentId — prefer the dropdown selection (most reliable)
+  const selectedPupilIdRaw = document.getElementById('rStudentSelect')?.value;
+  const selectedPupilId = selectedPupilIdRaw ? parseInt(selectedPupilIdRaw) : null;
+  const resolvedStudent = selectedPupilId
+    ? state.students.find(s => s.id === selectedPupilId)
+    : state.students.find(s => `${s.first} ${s.last}`.toLowerCase() === name.toLowerCase());
+  const studentId = resolvedStudent ? resolvedStudent.id : null;
+
   const reportData = {
-    name, cls, term, year, classSize, position, daysPresent, totalDays,
+    studentId,                // ← unique identifier (never null when pupil chosen from dropdown)
+    name, cls, term, year,
+    classSize, position, daysPresent, totalDays,
     nextTerm, remark, hmRemark, interest, conduct, rows, avg, avgGrade, avgRemark,
-    date: new Date().toLocaleDateString('en-GH')
+    subjects: rows.map(r => ({  // store as 'subjects' too for transcript compatibility
+      name: r.sub, cls: r.clsScore, exam: r.examScore, total: r.total, grade: r.grade, remark: r.remark
+    })),
+    date: new Date().toLocaleDateString('en-GH'),
+    savedAt: Date.now()
   };
 
+  // ── UNIQUE KEY: studentId + term + year (never overwrite a DIFFERENT student) ──
+  // Only use editIndex if it points to a record that matches THIS student
   const editIdx = document.getElementById('rEditIndex').value;
-  if (editIdx !== '') {
-    state.reports[parseInt(editIdx)] = reportData;
+  let existingIdx = -1;
+
+  if (editIdx !== '' && !isNaN(parseInt(editIdx))) {
+    const candidateIdx = parseInt(editIdx);
+    const candidate = state.reports[candidateIdx];
+    // Only honour the editIndex if it actually belongs to the SAME student
+    if (candidate &&
+        (studentId ? candidate.studentId === studentId : candidate.name === name) &&
+        candidate.term === term && candidate.year === year) {
+      existingIdx = candidateIdx;
+    }
+  }
+
+  // Fallback: search by studentId+term+year (strict — never match by name alone when studentId is known)
+  if (existingIdx === -1) {
+    existingIdx = state.reports.findIndex(r => {
+      if (studentId) {
+        // Strict: only match if both have the same studentId
+        return r.studentId === studentId && r.term === term && r.year === year;
+      } else {
+        // No studentId: match by exact name (manual entry)
+        return r.name === name && !r.studentId && r.term === term && r.year === year;
+      }
+    });
+  }
+
+  if (existingIdx >= 0) {
+    state.reports[existingIdx] = reportData;
     document.getElementById('rEditIndex').value = '';
     document.getElementById('generateReportCard').innerHTML = '<i class="fas fa-file-circle-check"></i> Generate GES Report Card';
     document.getElementById('cancelEditReportBtn').style.display = 'none';
-    showToast(`✅ Report card updated for ${name}!`);
+    const notice = document.getElementById('rExistingNotice');
+    if (notice) notice.style.display='none';
+    showToast(`✅ Report updated for ${name} — ${term}!`);
   } else {
     state.reports.push(reportData);
-    showToast(`✅ GES Report card saved for ${name}!`);
+    showToast(`✅ Report saved for ${name} — ${term}! Select the next student to continue.`);
   }
   autosave();
   renderSavedReports();
+
+  // ── AUTO-RESET form after saving so user can immediately do the next student ──
+  // Only reset if this was a NEW report (not an edit), so the user isn't stuck re-filling edits
+  if (existingIdx === -1) {
+    setTimeout(() => {
+      // Reset pupil selector and form fields, but keep term/year/class for convenience
+      const rSel = document.getElementById('rStudentSelect');
+      if (rSel) rSel.value = '';
+      ['rStudentName','rClassSize','rPosition','rDaysPresent','rNextTerm','rRemark','rHMRemark','rInterest'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.value = '';
+      });
+      _addedSubjects = []; renderSubjectRows();
+      document.getElementById('rEditIndex').value = '';
+      const notice = document.getElementById('rExistingNotice');
+      if (notice) notice.style.display = 'none';
+    }, 400); // slight delay so the toast is visible before clearing
+  }
 }
 
 function renderSavedReports() {
-  const c = document.getElementById('savedReportsList');
-  if (!state.reports.length) { c.innerHTML=`<p class="empty-state"><i class="fas fa-file-circle-plus"></i> No reports yet.</p>`; return; }
-  c.innerHTML = state.reports.map((r,i)=>`
-    <div class="saved-report-item">
-      <div class="sr-info">
-        <span class="sr-name"><i class="fas fa-user-graduate"></i> ${r.name}</span>
-        <span class="sr-meta">${r.cls} · ${r.term} · ${r.year} · Avg: ${r.avg}/100 · Grade ${r.avgGrade} — ${r.avgRemark} · ${r.date}</span>
+  const cont = document.getElementById('savedReportsList');
+  if (!state.reports.length) { cont.innerHTML=`<p class="empty-state"><i class="fas fa-file-circle-plus"></i> No reports yet.</p>`; return; }
+
+  // Populate class filter options dynamically
+  const clsEl = document.getElementById('reportClassFilter');
+  if (clsEl) {
+    const existing = [...clsEl.options].map(o=>o.value).slice(1);
+    const classes  = [...new Set(state.reports.map(r=>r.cls).filter(Boolean))].sort();
+    classes.forEach(cl => { if (!existing.includes(cl)) { const o=document.createElement('option'); o.value=cl; o.textContent=cl; clsEl.appendChild(o); } });
+  }
+
+  const search   = (document.getElementById('reportSearchInput')?.value||'').toLowerCase();
+  const termF    = document.getElementById('reportTermFilter')?.value||'';
+  const clsF     = document.getElementById('reportClassFilter')?.value||'';
+  const dateFrom = document.getElementById('reportDateFrom')?.value||'';
+  const dateTo   = document.getElementById('reportDateTo')?.value||'';
+
+  let data = state.reports.map((r,i)=>({...r, _idx:i}));
+  if (search)   data = data.filter(r=>r.name.toLowerCase().includes(search));
+  if (termF)    data = data.filter(r=>r.term===termF);
+  if (clsF)     data = data.filter(r=>r.cls===clsF);
+  if (dateFrom) data = data.filter(r=>r.date && new Date(r.date) >= new Date(dateFrom));
+  if (dateTo)   data = data.filter(r=>r.date && new Date(r.date) <= new Date(dateTo));
+
+  if (!data.length) { cont.innerHTML=`<p class="empty-state"><i class="fas fa-search"></i> No reports match the selected filters.</p>`; return; }
+
+  // Group by pupil name so we can show per-pupil "Print All Terms" button
+  const byPupil = {};
+  data.forEach(r => {
+    if (!byPupil[r.name]) byPupil[r.name] = [];
+    byPupil[r.name].push(r);
+  });
+
+  // Sort each pupil's reports by term order
+  Object.values(byPupil).forEach(arr => arr.sort((a,b) => (TERM_ORDER[a.term]||0) - (TERM_ORDER[b.term]||0)));
+
+  let html = '';
+  Object.entries(byPupil).forEach(([pupilName, reports]) => {
+    const multiTerm = reports.length > 1;
+    const firstReport = reports[0];
+    const pupilStudent = state.students.find(s => s.id===firstReport.studentId || `${s.first} ${s.last}`===pupilName);
+    const pupilPhotoHtml = pupilStudent && pupilStudent.photo
+      ? `<img src="${pupilStudent.photo}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:2px solid var(--border);"/>`
+      : `<span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:var(--blue-light);color:var(--blue);font-weight:700;font-size:13px;">${pupilName.charAt(0)}</span>`;
+    html += `<div style="margin-bottom:16px;border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+      <!-- Pupil header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-light);border-bottom:1px solid var(--border);">
+        <div style="display:flex;align-items:center;gap:8px;">
+          ${pupilPhotoHtml}
+          <strong style="font-size:14px;">${escHtml(pupilName)}</strong>
+          <span style="font-size:11px;color:var(--text-muted);">${firstReport.cls} · ${firstReport.year||''}</span>
+          <span style="font-size:11px;background:var(--blue-light);color:var(--blue);border-radius:4px;padding:1px 6px;">${reports.length} term report${reports.length!==1?'s':''}</span>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn-ghost" style="font-size:12px;padding:5px 12px;" onclick="openPrintReportModal('${escHtml(pupilName).replace(/'/g,"\\'")}')" title="Print options"><i class="fas fa-print" style="color:var(--blue);"></i> Print</button>
+          ${multiTerm ? `<button class="btn-ghost" style="font-size:12px;padding:5px 12px;" onclick="printPupilAllTerms('${escHtml(pupilName).replace(/'/g,"\\'")}')" title="Print all terms together"><i class="fas fa-graduation-cap" style="color:var(--blue);"></i> All Terms</button>` : ''}
+        </div>
       </div>
-      <div style="display:flex;gap:6px;flex-shrink:0;">
-        <button class="tbl-btn" onclick="editReport(${i})"><i class="fas fa-edit"></i> Edit</button>
-        <button class="tbl-btn" onclick="viewReport(${i})"><i class="fas fa-eye"></i> View</button>
-        <button class="tbl-btn danger" onclick="deleteReport(${i})"><i class="fas fa-trash"></i></button>
+      <!-- Individual term rows -->
+      ${reports.map(r => `
+        <div class="saved-report-item" style="border-bottom:1px solid var(--border);border-radius:0;">
+          <div class="sr-info">
+            <span class="sr-name" style="font-size:13px;">${r.term} &nbsp;·&nbsp; ${r.year}</span>
+            <span class="sr-meta">Avg: ${r.avg}/100 &nbsp;·&nbsp; Grade ${r.avgGrade} — ${r.avgRemark} &nbsp;·&nbsp; ${r.date}</span>
+          </div>
+          <div style="display:flex;gap:5px;flex-shrink:0;">
+            <button class="tbl-btn" onclick="editReport(${r._idx})"><i class="fas fa-edit"></i></button>
+            <button class="tbl-btn" onclick="viewReport(${r._idx})"><i class="fas fa-eye"></i> View</button>
+            <button class="tbl-btn" onclick="printSingleTranscript(${r._idx})" title="Print this term"><i class="fas fa-print"></i></button>
+            <button class="tbl-btn danger" onclick="deleteReport(${r._idx})"><i class="fas fa-trash"></i></button>
+          </div>
+        </div>`).join('')}
+    </div>`;
+  });
+
+  cont.innerHTML = html;
+}
+
+
+function getFilteredReports() {
+  const search   = (document.getElementById('reportSearchInput')?.value||'').toLowerCase();
+  const termF    = document.getElementById('reportTermFilter')?.value||'';
+  const clsF     = document.getElementById('reportClassFilter')?.value||'';
+  const dateFrom = document.getElementById('reportDateFrom')?.value||'';
+  const dateTo   = document.getElementById('reportDateTo')?.value||'';
+  let data = [...state.reports];
+  if (search)   data = data.filter(r=>r.name.toLowerCase().includes(search));
+  if (termF)    data = data.filter(r=>r.term===termF);
+  if (clsF)     data = data.filter(r=>r.cls===clsF);
+  if (dateFrom) data = data.filter(r=>r.date && new Date(r.date) >= new Date(dateFrom));
+  if (dateTo)   data = data.filter(r=>r.date && new Date(r.date) <= new Date(dateTo));
+  return data;
+}
+
+function buildTranscriptHtml(reports, title) {
+  const school  = state.settings.schoolName || 'School';
+  const address = state.settings.address || '';
+  const district= state.settings.district || '';
+  const date    = new Date().toLocaleDateString('en-GH',{year:'numeric',month:'long',day:'numeric'});
+
+  const body = reports.map((r,ri) => {
+    const subs = (r.subjects||[]).map(s=>`
+      <tr>
+        <td style="padding:5px 8px;">${s.name}</td>
+        <td style="text-align:center;padding:5px;">${s.cls||'—'}</td>
+        <td style="text-align:center;padding:5px;">${s.exam||'—'}</td>
+        <td style="text-align:center;padding:5px;font-weight:700;">${s.total||'—'}</td>
+        <td style="text-align:center;padding:5px;">${s.grade||'—'}</td>
+        <td style="padding:5px;">${s.remark||'—'}</td>
+      </tr>`).join('');
+
+    // Find pupil photo
+    const pupil = state.students.find(s => `${s.first} ${s.last}` === r.name);
+    const photoHtml = pupil && pupil.photo
+      ? `<img src="${pupil.photo}" style="width:70px;height:70px;border-radius:50%;object-fit:cover;border:2px solid #3b82f6;"/>`
+      : `<div style="width:70px;height:70px;border-radius:50%;background:#dbeafe;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;color:#1d4ed8;">${r.name.charAt(0)}</div>`;
+
+    return `
+      <div style="page-break-inside:avoid;margin-bottom:32px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;${ri>0?'page-break-before:auto':''}">
+        <!-- Term header -->
+        <div style="background:#1d4ed8;color:#fff;padding:12px 16px;display:flex;align-items:center;gap:14px;">
+          ${photoHtml}
+          <div>
+            <div style="font-size:17px;font-weight:800;">${r.name}</div>
+            <div style="font-size:12px;opacity:0.85;">${r.cls} &nbsp;·&nbsp; ${r.term} &nbsp;·&nbsp; ${r.year}</div>
+            <div style="font-size:11px;opacity:0.7;margin-top:2px;">Position: ${r.position||'—'}/${r.classSize||'—'} &nbsp;·&nbsp; Attendance: ${r.daysPresent||'—'}/${r.totalDays||'—'} days</div>
+          </div>
+          <div style="margin-left:auto;text-align:right;">
+            <div style="font-size:22px;font-weight:900;">${r.avg}<span style="font-size:13px;font-weight:400;">/100</span></div>
+            <div style="font-size:13px;">Grade <strong>${r.avgGrade}</strong></div>
+            <div style="font-size:11px;opacity:0.8;">${r.avgRemark}</div>
+          </div>
+        </div>
+        <!-- Subject table -->
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead><tr style="background:#f3f4f6;">
+            <th style="text-align:left;padding:6px 8px;">Subject</th>
+            <th style="text-align:center;padding:6px;">Class Score (/50)</th>
+            <th style="text-align:center;padding:6px;">Exam Score (/50)</th>
+            <th style="text-align:center;padding:6px;">Total (/100)</th>
+            <th style="text-align:center;padding:6px;">Grade</th>
+            <th style="text-align:left;padding:6px;">Remark</th>
+          </tr></thead>
+          <tbody>${subs}</tbody>
+        </table>
+        <!-- Remarks -->
+        <div style="padding:10px 14px;font-size:12px;background:#f9fafb;border-top:1px solid #e5e7eb;display:flex;gap:16px;flex-wrap:wrap;">
+          ${r.remark ? `<div><strong>Class Teacher:</strong> ${r.remark}</div>` : ''}
+          ${r.hmRemark ? `<div><strong>Head Teacher:</strong> ${r.hmRemark}</div>` : ''}
+          ${r.conduct ? `<div><strong>Conduct:</strong> ${r.conduct}</div>` : ''}
+          ${r.interest ? `<div><strong>Interest:</strong> ${r.interest}</div>` : ''}
+          ${r.nextTerm ? `<div><strong>Next Term Begins:</strong> ${r.nextTerm}</div>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+
+  return `<!DOCTYPE html><html><head><title>${title}</title>
+  <style>
+    *{box-sizing:border-box;} body{font-family:Arial,sans-serif;padding:24px;color:#111;max-width:900px;margin:0 auto;}
+    table td,table th{border:1px solid #e5e7eb;}
+    @media print{button{display:none!important;}body{padding:10px;} .page-break{page-break-before:always;}}
+  </style></head><body>
+    <div style="text-align:center;margin-bottom:24px;border-bottom:3px solid #1d4ed8;padding-bottom:16px;">
+      <div style="font-size:22px;font-weight:900;color:#1d4ed8;">${school}</div>
+      ${address?`<div style="font-size:12px;color:#555;">${address}${district?` · ${district}`:''}</div>`:''}
+      <div style="font-size:16px;font-weight:700;margin-top:8px;">${title}</div>
+      <div style="font-size:11px;color:#888;margin-top:3px;">Generated: ${date}</div>
+    </div>
+    ${body}
+    <div style="text-align:center;margin-top:24px;border-top:1px solid #e5e7eb;padding-top:16px;">
+      <button onclick="window.print()" style="padding:10px 32px;background:#1d4ed8;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:700;">🖨️ Print / Save as PDF</button>
+    </div>
+  </body></html>`;
+}
+
+function openPrintReportModal(pupilName) {
+  // Show modal with options: which term(s) to print for this pupil
+  const allReports = state.reports
+    .filter(r => r.name === pupilName)
+    .sort((a,b) => (TERM_ORDER[a.term]||0) - (TERM_ORDER[b.term]||0));
+  if (!allReports.length) { showToast('No reports found.'); return; }
+
+  const modal = document.getElementById('printReportModal');
+  const sel   = document.getElementById('printReportPupilName');
+  const opts  = document.getElementById('printReportTermOptions');
+  if (!modal || !sel || !opts) { printPupilAllTerms(pupilName); return; }
+
+  sel.textContent = pupilName;
+
+  // Build term checkboxes PLUS a "range" quick-select row
+  const termNames = allReports.map(r => r.term);
+  const termOptions = termNames.map(t => `<option value="${t}">${t}</option>`).join('');
+
+  opts.innerHTML = `
+    <div style="background:var(--bg-light);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px;">
+      <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;">
+        <i class="fas fa-sliders-h"></i> Quick Range Select
       </div>
-    </div>`).join('');
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <label style="font-size:12px;color:var(--text-muted);">From</label>
+        <select id="prmFromTerm" class="form-input" style="flex:1;min-width:120px;font-size:12px;padding:5px 8px;">
+          ${termOptions}
+        </select>
+        <label style="font-size:12px;color:var(--text-muted);">To</label>
+        <select id="prmToTerm" class="form-input" style="flex:1;min-width:120px;font-size:12px;padding:5px 8px;">
+          ${termOptions}
+        </select>
+        <button class="btn-ghost" style="font-size:12px;padding:5px 10px;" onclick="applyPrintRangeSelect()">
+          <i class="fas fa-check"></i> Apply
+        </button>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:8px;">
+        <button class="btn-ghost" style="font-size:11px;padding:3px 8px;" onclick="setPrintRangeAll(true)"><i class="fas fa-check-double"></i> All</button>
+        <button class="btn-ghost" style="font-size:11px;padding:3px 8px;" onclick="setPrintRangeAll(false)"><i class="fas fa-times"></i> None</button>
+      </div>
+    </div>
+    <div id="prmChecksWrap">
+      ${allReports.map(r => `
+        <label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer;">
+          <input type="checkbox" class="prm-check" value="${state.reports.indexOf(r)}" data-term="${r.term}" checked style="width:16px;height:16px;"/>
+          <span style="font-size:13px;"><strong>${r.term}</strong> — ${r.year} &nbsp; <span style="color:var(--text-muted);">Avg: ${r.avg}/100 · Grade ${r.avgGrade}</span></span>
+        </label>`).join('')}
+    </div>`;
+
+  // Pre-set "To" dropdown to the last term available
+  const toSel = document.getElementById('prmToTerm');
+  if (toSel && termNames.length > 1) toSel.value = termNames[termNames.length - 1];
+
+  modal.classList.add('open');
+}
+
+function applyPrintRangeSelect() {
+  const fromTerm = document.getElementById('prmFromTerm')?.value;
+  const toTerm   = document.getElementById('prmToTerm')?.value;
+  if (!fromTerm || !toTerm) return;
+  const fromOrder = TERM_ORDER[fromTerm] || 0;
+  const toOrder   = TERM_ORDER[toTerm]   || 99;
+  document.querySelectorAll('.prm-check').forEach(ch => {
+    const termOrder = TERM_ORDER[ch.dataset.term] || 0;
+    ch.checked = termOrder >= fromOrder && termOrder <= toOrder;
+  });
+}
+
+function setPrintRangeAll(checked) {
+  document.querySelectorAll('.prm-check').forEach(ch => { ch.checked = checked; });
+}
+
+function executePrintReportModal() {
+  const checks = [...document.querySelectorAll('.prm-check:checked')];
+  if (!checks.length) { showToast('⚠️ Select at least one term.'); return; }
+  const indices = checks.map(ch => parseInt(ch.value));
+  const reports = indices.map(i => state.reports[i]).filter(Boolean)
+    .sort((a,b) => (TERM_ORDER[a.term]||0) - (TERM_ORDER[b.term]||0));
+  const pupilName = document.getElementById('printReportPupilName')?.textContent || '';
+  const termLabel = reports.length === 1 ? reports[0].term : `${reports[0].term} – ${reports[reports.length-1].term}`;
+  const title = `Academic Transcript — ${pupilName} (${termLabel})`;
+  document.getElementById('printReportModal').classList.remove('open');
+  const w = window.open('','_blank','width=960,height=750');
+  w.document.write(buildTranscriptHtml(reports, title));
+  w.document.close();
+}
+
+function printPupilAllTerms(pupilName) {
+  // Get ALL saved reports for this pupil (all terms), sorted by term
+  const allReports = state.reports
+    .filter(r => r.name === pupilName)
+    .sort((a,b) => (TERM_ORDER[a.term]||0) - (TERM_ORDER[b.term]||0));
+  if (!allReports.length) { showToast('No reports found for ' + pupilName); return; }
+  const title = `Academic Transcript — ${pupilName} (All Terms)`;
+  const w = window.open('','_blank','width=960,height=750');
+  w.document.write(buildTranscriptHtml(allReports, title));
+  w.document.close();
+}
+
+function printTranscript() {
+  const data = getFilteredReports();
+  if (!data.length) { showToast('⚠️ No reports match current filters.'); return; }
+  const termF = document.getElementById('reportTermFilter')?.value || 'All Terms';
+  const clsF  = document.getElementById('reportClassFilter')?.value || 'All Classes';
+  const title = `Academic Transcript — ${clsF} — ${termF} (${data.length} pupil${data.length!==1?'s':''})`;
+  const w = window.open('','_blank','width=960,height=750');
+  w.document.write(buildTranscriptHtml(data, title));
+  w.document.close();
+}
+
+function printSingleTranscript(idx) {
+  const r = state.reports[idx]; if (!r) return;
+  const title = `Academic Transcript — ${r.name} — ${r.term} ${r.year}`;
+  const w = window.open('','_blank','width=960,height=750');
+  w.document.write(buildTranscriptHtml([r], title));
+  w.document.close();
 }
 
 function deleteReport(i) { 
@@ -2002,6 +2458,17 @@ function loadReportIntoForm(r, idx) {
   document.getElementById('rConduct').value = r.conduct || 'Hardworking';
   document.getElementById('rEditIndex').value = idx !== undefined ? idx : '';
   document.getElementById('generateReportCard').innerHTML = '<i class="fas fa-save"></i> Update Report Card';
+  document.getElementById('cancelEditReportBtn').style.display = 'inline-flex';
+
+  // Also set the pupil dropdown if we have studentId
+  const sel = document.getElementById('rStudentSelect');
+  if (sel && r.studentId) {
+    sel.value = r.studentId;
+  } else if (sel && r.name) {
+    // Try matching by name
+    const p = state.students.find(s => `${s.first} ${s.last}` === r.name);
+    if (p) sel.value = p.id;
+  }
 
   // Restore dynamic subject rows from saved data
   _addedSubjects = r.rows ? r.rows.map(row => row.sub) : [];
@@ -2113,29 +2580,191 @@ function _renderReportCardDisplay(r) {
 }
 
 // ── FEES ──
+
+// Term ordering helper
+const TERM_ORDER = {'First Term':1,'Second Term':2,'Third Term':3};
+function termBefore(t1, t2) {
+  // Returns true if t1 comes before t2
+  return (TERM_ORDER[t1]||0) < (TERM_ORDER[t2]||0);
+}
+function getArrearsForPupil(studentId, studentName, currentTerm) {
+  // Sum unpaid balances from ALL prior term records for this pupil
+  const prior = state.fees.filter(f => {
+    const samePupil = f.studentId === studentId || f.student === studentName;
+    return samePupil && termBefore(f.term, currentTerm);
+  });
+  return prior.reduce((sum, f) => {
+    const totalDue = getDueForRecord(f) + (f.arrears||0);
+    const paid     = totalPaidForRecord(f);
+    return sum + Math.max(0, totalDue - paid);
+  }, 0);
+}
+function totalDueForRecord(f) {
+  return (f.due||0) + (f.arrears||0);
+}
+// Sum all payment transactions for a fee record (never use f.paid directly for display)
+function totalPaidForRecord(f) {
+  if (f.payments && f.payments.length) return f.payments.reduce((a,p) => a + (p.amt||0), 0);
+  return f.paid || 0;
+}
+
+// ── FEE STRUCTURE HELPERS ────────────────────────────────
+// Get the expected fee for a class+term+year from the structure table
+function getFeeFromStructure(cls, term, year) {
+  if (!state.feeStructure) return null;
+  const yr = year || state.settings.session || '';
+  const entry = state.feeStructure.find(s =>
+    s.cls === cls && s.term === term && (s.year === yr || !s.year)
+  );
+  return entry ? entry.amount : null;
+}
+
+// Get ALL fee structure entries for a class+year (all 3 terms)
+function getStructureForClass(cls, year) {
+  if (!state.feeStructure) return [];
+  const yr = year || state.settings.session || '';
+  return state.feeStructure.filter(s => s.cls === cls && (s.year === yr || !s.year));
+}
+
+// Save or update a fee structure entry
+function setFeeStructure(cls, term, year, amount) {
+  if (!state.feeStructure) state.feeStructure = [];
+  const yr = year || state.settings.session || '';
+  const idx = state.feeStructure.findIndex(s => s.cls === cls && s.term === term && s.year === yr);
+  if (idx >= 0) {
+    state.feeStructure[idx].amount = amount;
+  } else {
+    state.feeStructure.push({ id: Date.now(), cls, term, year: yr, amount });
+  }
+}
+
+// Get the correct due amount for a fee record — always prefer structure over stored f.due
+function getDueForRecord(f) {
+  const structAmt = getFeeFromStructure(f.cls, f.term, f.year || state.settings.session);
+  return structAmt !== null ? structAmt : (f.due || 0);
+}
+
+// Render the fee structure management UI
+function renderFeeStructureUI() {
+  const wrap = document.getElementById('feeStructureWrap');
+  if (!wrap) return;
+  const year = state.settings.session || '';
+  const classes = [...new Set(state.students.map(s => s.cls).filter(Boolean))].sort();
+  const terms   = ['First Term', 'Second Term', 'Third Term'];
+
+  if (!classes.length) {
+    wrap.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;">No pupils enrolled yet. Enrol pupils first to set up fees.</p>';
+    return;
+  }
+
+  let html = '<div style="overflow-x:auto;"><table class="data-table"><thead><tr>'
+    + '<th>Class</th>'
+    + terms.map(t => '<th style="text-align:center;">' + t + '</th>').join('')
+    + '<th style="text-align:center;">Year Total</th>'
+    + '</tr></thead><tbody>';
+
+  classes.forEach(cls => {
+    const termAmts = terms.map(t => {
+      const amt = getFeeFromStructure(cls, t, year);
+      return amt !== null ? amt : '';
+    });
+    const yearTotal = termAmts.reduce((a, v) => a + (parseFloat(v) || 0), 0);
+    html += '<tr><td><strong>' + cls + '</strong></td>'
+      + terms.map((t, i) => ''
+          + '<td style="text-align:center;">'
+          + '<input type="number" min="0" step="0.01" '
+          + 'class="form-input fss-input" '
+          + 'style="width:100px;text-align:center;padding:5px 8px;" '
+          + 'data-cls="' + cls + '" data-term="' + t + '" data-year="' + year + '" '
+          + 'value="' + termAmts[i] + '" '
+          + 'placeholder="0.00" '
+          + 'onchange="onFeeStructureChange(this)"/>'
+          + '</td>'
+        ).join('')
+      + '<td style="text-align:center;font-weight:700;color:var(--blue);" id="fss-total-' + cls.replace(/[^a-z0-9]/gi,'_') + '">'
+      + (yearTotal > 0 ? 'GH₳' + yearTotal.toFixed(2) : '—')
+      + '</td></tr>';
+  });
+
+  html += '</tbody></table></div>'
+    + '<p style="font-size:12px;color:var(--text-muted);margin-top:10px;">'
+    + '<i class="fas fa-info-circle"></i> Changes save automatically. These amounts will be used for all balance calculations — teachers cannot override them when recording payments.'
+    + '</p>';
+
+  wrap.innerHTML = html;
+}
+
+function onFeeStructureChange(input) {
+  const cls    = input.dataset.cls;
+  const term   = input.dataset.term;
+  const year   = input.dataset.year;
+  const amount = parseFloat(input.value) || 0;
+  setFeeStructure(cls, term, year, amount);
+  // Update year total cell
+  const safeId = cls.replace(/[^a-z0-9]/gi, '_');
+  const totalCell = document.getElementById('fss-total-' + safeId);
+  if (totalCell) {
+    const terms = ['First Term', 'Second Term', 'Third Term'];
+    const total = terms.reduce((a, t) => a + (getFeeFromStructure(cls, t, year) || 0), 0);
+    totalCell.textContent = total > 0 ? 'GH₳' + total.toFixed(2) : '—';
+  }
+  autosave();
+  showToast('✅ Fee updated: ' + cls + ' · ' + term + ' = GH₳' + amount.toFixed(2));
+}
+
+function openFeeStructureModal() {
+  const lbl = document.getElementById('feeStructYearLabel');
+  if (lbl) lbl.textContent = state.settings.session || '';
+  renderFeeStructureUI();
+  document.getElementById('feeStructureModal').classList.add('open');
+}
+
+function initFeeStructure() {
+  if (!state.feeStructure) state.feeStructure = [];
+}
+// ─────────────────────────────────────────────────────────
+
 function renderFees(filter='', statusF='') {
   const tbody = document.getElementById('feesTbody');
   let data = state.fees;
   if (filter) data = data.filter(f=>f.student.toLowerCase().includes(filter.toLowerCase()));
-  if (statusF) data = data.filter(f=>getStatus(f.due,f.paid)===statusF);
-  if (!data.length) { tbody.innerHTML=`<tr><td colspan="8" style="text-align:center;color:var(--text-light);padding:28px;">No records. Pupils are auto-linked when enrolled.</td></tr>`; return; }
+  if (statusF) {
+    data = data.filter(f => {
+      const td = totalDueForRecord(f);
+      return getStatus(td, totalPaidForRecord(f)) === statusF;
+    });
+  }
+  if (!data.length) { tbody.innerHTML=`<tr><td colspan="9" style="text-align:center;color:var(--text-light);padding:28px;">No records. Pupils are auto-linked when enrolled.</td></tr>`; return; }
   tbody.innerHTML = data.map((f,i)=>{
-    const bal=f.due-f.paid, status=getStatus(f.due,f.paid);
-    // Enrich with live student data
-    const pupil = state.students.find(s => s.id === f.studentId || `${s.first} ${s.last}` === f.student);
-    const cls = pupil ? pupil.cls : f.cls;
-    const name = pupil ? `${pupil.first} ${pupil.last}` : f.student;
-    const photo = pupil && pupil.photo ? `<img src="${pupil.photo}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;margin-right:7px;vertical-align:middle;"/>` : `<span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--blue-light);color:var(--blue);font-size:11px;font-weight:700;margin-right:7px;">${name.charAt(0)}</span>`;
+    const td   = getDueForRecord(f) + (f.arrears||0);
+    const paid = totalPaidForRecord(f);
+    const bal  = td - paid;
+    const status = getStatus(td, paid);
+    const pupil  = state.students.find(s => s.id === f.studentId || `${s.first} ${s.last}` === f.student);
+    const cls    = pupil ? pupil.cls : f.cls;
+    const name   = pupil ? `${pupil.first} ${pupil.last}` : f.student;
+    const photo  = pupil && pupil.photo
+      ? `<img src="${pupil.photo}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;margin-right:7px;vertical-align:middle;"/>`
+      : `<span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--blue-light);color:var(--blue);font-size:11px;font-weight:700;margin-right:7px;">${name.charAt(0)}</span>`;
     const pendingSetup = f.due === 0 ? '<span style="font-size:10px;color:var(--yellow);display:block;">⚠ Fee not set</span>' : '';
+    const arrearsBadge = (f.arrears||0)>0 ? `<span style="font-size:10px;background:#fff7e0;color:#92400e;border:1px solid #fbbf24;border-radius:4px;padding:1px 5px;display:block;margin-top:2px;">Arr: ${fmt(f.arrears)}</span>` : '';
+    const termBadge = f.term ? `<span style="font-size:10px;color:var(--text-muted);">${f.term}</span>` : '';
+    const payCount = (f.payments||[]).length;
+    const lastPay  = payCount ? f.payments[payCount-1] : null;
+    const payBadge = payCount > 0
+      ? `<span style="font-size:10px;color:var(--blue);">${payCount} payment${payCount!==1?'s':''}</span>${lastPay&&lastPay.receiptNo?`<span style="font-size:9px;color:var(--text-muted);display:block;">${lastPay.receiptNo}</span>`:''}`
+      : '';
     return `<tr>
       <td>${i+1}</td>
       <td><div style="display:flex;align-items:center;">${photo}<div><strong>${name}</strong>${pendingSetup}</div></div></td>
-      <td><span class="status-pill" style="background:var(--blue-light);color:var(--blue);font-size:11px;">${cls}</span></td>
-      <td>${fmt(f.due)}</td><td style="color:var(--green);font-weight:600;">${fmt(f.paid)}</td>
+      <td><div style="display:flex;flex-direction:column;gap:2px;"><span class="status-pill" style="background:var(--blue-light);color:var(--blue);font-size:11px;">${cls}</span>${termBadge}</div></td>
+      <td><div>${fmt(f.due)}</div>${arrearsBadge}</td>
+      <td style="color:var(--green);font-weight:600;">${fmt(paid)}<div>${payBadge}</div></td>
       <td style="color:${bal>0?'var(--red)':'var(--green)'};font-weight:600;">${fmt(bal)}</td>
       <td>${statusPill(status)}</td>
       <td>
         <button class="tbl-btn" onclick="editFeeRecord(${f.id})" title="Edit"><i class="fas fa-edit"></i></button>
+        <button class="tbl-btn" onclick="viewPaymentHistory(${f.id})" title="Payment History"><i class="fas fa-list-ul"></i></button>
         <button class="tbl-btn" onclick="quickPrintFeeReceipt(${f.id})" title="Print Receipt"><i class="fas fa-receipt"></i></button>
         <button class="tbl-btn danger" onclick="deleteFee(${f.id})" title="Delete"><i class="fas fa-trash"></i></button>
       </td></tr>`;
@@ -2143,11 +2772,231 @@ function renderFees(filter='', statusF='') {
   updateFeeStats();
 }
 
+function viewPaymentHistory(feeId) {
+  const f = state.fees.find(x => x.id === feeId); if (!f) return;
+  // Build full student statement across ALL their fee records (all terms)
+  const student  = state.students.find(s => s.id === f.studentId || `${s.first} ${s.last}` === f.student);
+  const allRecs  = state.fees
+    .filter(r => r.studentId === f.studentId || r.student === f.student)
+    .sort((a,b) => (TERM_ORDER[a.term]||0) - (TERM_ORDER[b.term]||0));
+
+  let grandDue = 0, grandPaid = 0;
+  const termBlocks = allRecs.map(rec => {
+    const payments = rec.payments && rec.payments.length
+      ? rec.payments
+      : (rec.paid > 0 ? [{ amt: rec.paid, date: rec.createdAt?.slice(0,10)||'—', note: '', method:'Cash', receiptNo:'—' }] : []);
+    const termDue  = getDueForRecord(rec) + (rec.arrears||0);
+    const termPaid = payments.reduce((a,p) => a + p.amt, 0);
+    const termBal  = termDue - termPaid;
+    grandDue  += termDue;
+    grandPaid += termPaid;
+
+    // Running balance rows
+    let running = termDue;
+    const rows = payments.length
+      ? payments.map(p => {
+          running -= p.amt;
+          return `<tr>
+            <td style="padding:5px 8px;font-size:12px;">${p.date||'—'}</td>
+            <td style="padding:5px 8px;font-size:11px;">
+              <span style="background:var(--blue-light);color:var(--blue);border-radius:4px;padding:1px 5px;font-size:10px;font-weight:700;">${escHtml(p.receiptNo||'—')}</span>
+            </td>
+            <td style="padding:5px 8px;color:var(--green);font-weight:700;font-size:13px;">${fmt(p.amt)}</td>
+            <td style="padding:5px 8px;font-size:11px;color:var(--text-muted);">${escHtml(p.method||'Cash')}</td>
+            <td style="padding:5px 8px;font-size:11px;color:var(--text-muted);">${escHtml(p.note||'—')}</td>
+            <td style="padding:5px 8px;font-weight:700;color:${running>0?'var(--red)':'var(--green)'};">${fmt(running)}</td>
+          </tr>`;
+        }).join('')
+      : `<tr><td colspan="6" style="padding:8px;text-align:center;color:var(--text-muted);font-size:12px;">No payments recorded for this term.</td></tr>`;
+
+    const isActive = rec.id === feeId;
+    return `
+      <div style="border:1px solid var(--border);border-radius:8px;margin-bottom:12px;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:${isActive?'var(--blue-light)':'var(--bg-light)'};">
+          <div>
+            <strong style="font-size:13px;color:${isActive?'var(--blue)':'var(--text)'};">${rec.term||'—'} — ${rec.year||state.settings.session||''}</strong>
+            ${rec.arrears>0?`<span style="font-size:10px;background:#fff7e0;color:#92400e;border-radius:4px;padding:1px 5px;margin-left:6px;">Arrears: ${fmt(rec.arrears)}</span>`:''}
+          </div>
+          <div style="display:flex;gap:12px;font-size:12px;">
+            <span>Due: <strong>${fmt(termDue)}</strong></span>
+            <span style="color:var(--green);">Paid: <strong>${fmt(termPaid)}</strong></span>
+            <span style="color:${termBal>0?'var(--red)':'var(--green)'};font-weight:700;">Bal: ${fmt(termBal)}</span>
+          </div>
+        </div>
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="background:#f8fafc;font-size:11px;">
+              <th style="padding:4px 8px;text-align:left;font-weight:700;color:var(--text-muted);">DATE</th>
+              <th style="padding:4px 8px;text-align:left;font-weight:700;color:var(--text-muted);">RECEIPT #</th>
+              <th style="padding:4px 8px;text-align:left;font-weight:700;color:var(--text-muted);">AMOUNT</th>
+              <th style="padding:4px 8px;text-align:left;font-weight:700;color:var(--text-muted);">METHOD</th>
+              <th style="padding:4px 8px;text-align:left;font-weight:700;color:var(--text-muted);">NOTE</th>
+              <th style="padding:4px 8px;text-align:left;font-weight:700;color:var(--text-muted);">BALANCE</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>`;
+  }).join('');
+
+  const grandBal = grandDue - grandPaid;
+  const photoHtml = student && student.photo
+    ? `<img src="${student.photo}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;border:2px solid var(--blue);" />`
+    : `<div style="width:36px;height:36px;border-radius:50%;background:var(--blue-light);color:var(--blue);display:grid;place-items:center;font-weight:700;font-size:15px;">${f.student.charAt(0)}</div>`;
+
+  const html = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:10px 12px;background:var(--bg-light);border-radius:8px;border:1px solid var(--border);">
+      ${photoHtml}
+      <div>
+        <div style="font-weight:800;font-size:14px;">${f.student}</div>
+        <div style="font-size:12px;color:var(--text-muted);">${f.cls||'—'} &nbsp;·&nbsp; ${state.settings.session||''}</div>
+      </div>
+      <button onclick="printStudentStatement('${f.student.replace(/'/g,"\'")}', '${f.studentId||''}')" style="margin-left:auto;background:var(--blue);color:#fff;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;"><i class="fas fa-print"></i> Print Statement</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;">
+      <div style="text-align:center;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;">
+        <div style="font-size:10px;font-weight:700;color:var(--text-muted);margin-bottom:2px;">TOTAL DUE (ALL TERMS)</div>
+        <div style="font-weight:800;font-size:18px;">${fmt(grandDue)}</div>
+      </div>
+      <div style="text-align:center;padding:10px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;">
+        <div style="font-size:10px;font-weight:700;color:var(--green);margin-bottom:2px;">TOTAL PAID</div>
+        <div style="font-weight:800;font-size:18px;color:var(--green);">${fmt(grandPaid)}</div>
+      </div>
+      <div style="text-align:center;padding:10px;background:${grandBal>0?'#fee2e2':'#f0fdf4'};border:1px solid ${grandBal>0?'#fca5a5':'#86efac'};border-radius:8px;">
+        <div style="font-size:10px;font-weight:700;color:${grandBal>0?'var(--red)':'var(--green)'};margin-bottom:2px;">OUTSTANDING BALANCE</div>
+        <div style="font-weight:800;font-size:18px;color:${grandBal>0?'var(--red)':'var(--green)'};">${fmt(grandBal)}</div>
+      </div>
+    </div>
+    <div style="max-height:420px;overflow-y:auto;">${termBlocks}</div>`;
+
+  const modal = document.getElementById('arrearsModal');
+  if (modal) {
+    modal.querySelector('h3').innerHTML = '<i class="fas fa-file-invoice" style="color:var(--blue);"></i> Student Fee Statement';
+    modal.querySelector('#arrearsTableWrap').innerHTML = html;
+    modal.querySelector('#arrearsClassFilter').style.display = 'none';
+    modal.querySelector('#arrearsSortFilter').style.display = 'none';
+    modal.querySelector('.btn-primary[onclick*="printArrears"]').style.display = 'none';
+    modal.classList.add('open');
+  }
+}
+
+function printStudentStatement(studentName, studentId) {
+  const sid = parseInt(studentId) || null;
+  const allRecs = state.fees
+    .filter(r => (sid && r.studentId === sid) || r.student === studentName)
+    .sort((a,b) => (TERM_ORDER[a.term]||0) - (TERM_ORDER[b.term]||0));
+  if (!allRecs.length) { showToast('No fee records found.'); return; }
+
+  const school = state.settings.schoolName || 'School';
+  const address = state.settings.address || '';
+  const session = state.settings.session || '';
+  const date = new Date().toLocaleDateString('en-GH', {year:'numeric',month:'long',day:'numeric'});
+  const student = state.students.find(s => s.id === sid || `${s.first} ${s.last}` === studentName);
+  const cls = student ? student.cls : (allRecs[0]?.cls || '—');
+
+  let grandDue = 0, grandPaid = 0;
+  const termSections = allRecs.map(rec => {
+    const payments = rec.payments && rec.payments.length
+      ? rec.payments
+      : (rec.paid > 0 ? [{ amt: rec.paid, date: rec.createdAt?.slice(0,10)||'—', note:'', method:'Cash', receiptNo:'—' }] : []);
+    const termDue  = (rec.due||0) + (rec.arrears||0);
+    const termPaid = payments.reduce((a,p) => a + p.amt, 0);
+    const termBal  = termDue - termPaid;
+    grandDue  += termDue;
+    grandPaid += termPaid;
+
+    let running = termDue;
+    const rows = payments.length
+      ? payments.map(p => {
+          running -= p.amt;
+          return `<tr>
+            <td>${p.date||'—'}</td>
+            <td>${p.receiptNo||'—'}</td>
+            <td style="color:#16a34a;font-weight:700;">GH₵${p.amt.toFixed(2)}</td>
+            <td>${p.method||'Cash'}</td>
+            <td>${p.note||'—'}</td>
+            <td style="font-weight:700;color:${running>0?'#dc2626':'#16a34a'};">GH₵${running.toFixed(2)}</td>
+          </tr>`;
+        }).join('')
+      : '<tr><td colspan="6" style="text-align:center;color:#999;">No payments recorded.</td></tr>';
+
+    return `
+      <div style="margin-bottom:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;background:#f0f4ff;padding:8px 12px;border-radius:6px;margin-bottom:8px;">
+          <strong style="color:#1d4ed8;">${rec.term||'—'} — ${rec.year||session}</strong>
+          <span style="font-size:12px;">Due: <b>GH₵${termDue.toFixed(2)}</b> &nbsp; Paid: <b style="color:#16a34a;">GH₵${termPaid.toFixed(2)}</b> &nbsp; Balance: <b style="color:${termBal>0?'#dc2626':'#16a34a'};">GH₵${termBal.toFixed(2)}</b></span>
+        </div>
+        <table>
+          <thead><tr><th>Date</th><th>Receipt #</th><th>Amount Paid</th><th>Method</th><th>Note</th><th>Balance</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }).join('');
+
+  const grandBal = grandDue - grandPaid;
+  const w = window.open('', '_blank', 'width=900,height=750');
+  w.document.write(`<!DOCTYPE html><html><head><title>Fee Statement — ${studentName}</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 28px; max-width: 820px; margin: auto; color: #111; }
+    .header { text-align: center; border-bottom: 3px solid #1d4ed8; padding-bottom: 14px; margin-bottom: 18px; }
+    .school { font-size: 20px; font-weight: 800; color: #1d4ed8; }
+    .student-info { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 18px; padding: 12px 16px; background: #f8fafc; border-radius: 8px; border: 1px solid #e5e7eb; font-size: 13px; }
+    .si-item { display: flex; flex-direction: column; gap: 2px; }
+    .si-label { font-size: 10px; font-weight: 700; color: #6b7280; text-transform: uppercase; }
+    .si-value { font-weight: 700; font-size: 14px; }
+    .grand-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 22px; }
+    .gs-box { text-align: center; padding: 12px; border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 6px; font-size: 12px; }
+    th, td { border: 1px solid #e5e7eb; padding: 6px 10px; text-align: left; }
+    th { background: #f3f4f6; font-weight: 700; font-size: 11px; }
+    tr:nth-child(even) { background: #fafafa; }
+    .footer { text-align: center; font-size: 11px; color: #9ca3af; margin-top: 24px; padding-top: 12px; border-top: 1px solid #e5e7eb; }
+    @media print { button { display: none; } }
+  </style>
+  </head><body>
+  <div class="header">
+    <div class="school">${school}</div>
+    <div style="font-size:12px;color:#555;margin-top:4px;">${address}</div>
+    <div style="font-weight:700;font-size:14px;margin-top:6px;color:#1d4ed8;">STUDENT FEE STATEMENT</div>
+    <div style="font-size:12px;color:#555;">Academic Year: ${session}</div>
+  </div>
+  <div class="student-info">
+    <div class="si-item"><span class="si-label">Student Name</span><span class="si-value">${studentName}</span></div>
+    <div class="si-item"><span class="si-label">Class</span><span class="si-value">${cls}</span></div>
+    <div class="si-item"><span class="si-label">Printed On</span><span class="si-value">${date}</span></div>
+    <div class="si-item"><span class="si-label">Statement Type</span><span class="si-value">Full Year History</span></div>
+  </div>
+  <div class="grand-summary">
+    <div class="gs-box" style="background:#f0f4ff;border:1px solid #bfdbfe;">
+      <div style="font-size:10px;font-weight:700;color:#1d4ed8;margin-bottom:4px;">TOTAL DUE</div>
+      <div style="font-size:22px;font-weight:800;">GH₵${grandDue.toFixed(2)}</div>
+    </div>
+    <div class="gs-box" style="background:#f0fdf4;border:1px solid #86efac;">
+      <div style="font-size:10px;font-weight:700;color:#16a34a;margin-bottom:4px;">TOTAL PAID</div>
+      <div style="font-size:22px;font-weight:800;color:#16a34a;">GH₵${grandPaid.toFixed(2)}</div>
+    </div>
+    <div class="gs-box" style="background:${grandBal>0?'#fee2e2':'#f0fdf4'};border:1px solid ${grandBal>0?'#fca5a5':'#86efac'};">
+      <div style="font-size:10px;font-weight:700;color:${grandBal>0?'#dc2626':'#16a34a'};margin-bottom:4px;">OUTSTANDING</div>
+      <div style="font-size:22px;font-weight:800;color:${grandBal>0?'#dc2626':'#16a34a'};">GH₵${grandBal.toFixed(2)}</div>
+    </div>
+  </div>
+  ${termSections}
+  <div class="footer">
+    <div>Generated by EduManage Pro &nbsp;·&nbsp; ${date}</div>
+    <div style="margin-top:4px;">This is an official fee statement. Please retain for your records.</div>
+  </div>
+  <div style="text-align:center;margin-top:16px;">
+    <button onclick="window.print()" style="padding:9px 28px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;font-weight:700;">🖨️ Print / Save as PDF</button>
+  </div>
+  </body></html>`);
+  w.document.close();
+}
+
 function updateFeeStats() {
-  const paid = state.fees.filter(f=>getStatus(f.due,f.paid)==='Paid').length;
-  const unpaid = state.fees.filter(f=>getStatus(f.due,f.paid)!=='Paid').length;
-  const totalC = state.fees.reduce((a,f)=>a+f.paid,0);
-  const totalP = state.fees.reduce((a,f)=>a+(f.due-f.paid),0);
+  const paid   = state.fees.filter(f=>getStatus(getDueForRecord(f)+(f.arrears||0),totalPaidForRecord(f))==='Paid').length;
+  const unpaid = state.fees.filter(f=>getStatus(getDueForRecord(f)+(f.arrears||0),totalPaidForRecord(f))!=='Paid').length;
+  const totalC = state.fees.reduce((a,f)=>a+totalPaidForRecord(f),0);
+  const totalP = state.fees.reduce((a,f)=>a+Math.max(0,(getDueForRecord(f)+(f.arrears||0))-totalPaidForRecord(f)),0);
   document.getElementById('feePaidCount').textContent=paid;
   document.getElementById('feeUnpaidCount').textContent=unpaid;
   document.getElementById('totalCollectedFee').textContent=fmt(totalC);
@@ -2155,10 +3004,166 @@ function updateFeeStats() {
   updateDashStats();
 }
 
+function showArrearsReport() {
+  // Populate class filter
+  const classes = [...new Set(state.fees.map(f => f.cls).filter(Boolean))].sort();
+  const cf = document.getElementById('arrearsClassFilter');
+  if (cf) { cf.innerHTML = '<option value="">All Classes</option>' + classes.map(c=>`<option>${c}</option>`).join(''); }
+  renderArrearsTable();
+  document.getElementById('arrearsModal').classList.add('open');
+}
+
+function renderArrearsTable() {
+  const clsF  = document.getElementById('arrearsClassFilter')?.value || '';
+  const sortF = document.getElementById('arrearsSortFilter')?.value || 'balance';
+  let data = state.fees.filter(f => f.due > 0 && f.due > f.paid);
+  if (clsF) data = data.filter(f => f.cls === clsF);
+  data = data.map(f => ({ ...f, balance: f.due - f.paid }));
+  if (sortF === 'balance') data.sort((a,b) => b.balance - a.balance);
+  else data.sort((a,b) => a.student.localeCompare(b.student));
+
+  const wrap = document.getElementById('arrearsTableWrap');
+  if (!data.length) { wrap.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;">🎉 No outstanding arrears!</p>'; return; }
+  const totalArrears = data.reduce((a,f) => a + f.balance, 0);
+  wrap.innerHTML = `
+    <div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-weight:700;color:#dc2626;"><i class="fas fa-exclamation-circle"></i> ${data.length} pupil(s) with outstanding fees</span>
+      <span style="font-weight:800;color:#dc2626;font-size:16px;">Total: ${fmt(totalArrears)}</span>
+    </div>
+    <div class="table-wrap"><table class="data-table" id="arrearsTable">
+      <thead><tr><th>#</th><th>Pupil</th><th>Class</th><th>Term</th><th>Due</th><th>Paid</th><th style="color:var(--red);">Arrears</th></tr></thead>
+      <tbody>${data.map((f,i) => `<tr>
+        <td>${i+1}</td>
+        <td><strong>${escHtml(f.student)}</strong></td>
+        <td>${escHtml(f.cls||'—')}</td>
+        <td>${escHtml(f.term||'—')}</td>
+        <td>${fmt(f.due)}</td>
+        <td style="color:var(--green);">${fmt(f.paid)}</td>
+        <td style="color:var(--red);font-weight:700;">${fmt(f.balance)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>`;
+}
+
+function printArrearsReport() {
+  const school = state.settings.schoolName || 'School';
+  const date   = new Date().toLocaleDateString('en-GH', {year:'numeric',month:'long',day:'numeric'});
+  const clsF   = document.getElementById('arrearsClassFilter')?.value || 'All Classes';
+  let data = state.fees.filter(f => f.due > 0 && f.due > f.paid);
+  if (clsF && clsF !== 'All Classes') data = data.filter(f => f.cls === clsF);
+  data = data.map(f => ({...f, balance:f.due-f.paid})).sort((a,b)=>b.balance-a.balance);
+  const total = data.reduce((a,f)=>a+f.balance,0);
+  const rows = data.map((f,i)=>`<tr><td>${i+1}</td><td>${f.student}</td><td>${f.cls||'—'}</td><td>${f.term||'—'}</td><td>${fmt(f.due)}</td><td>${fmt(f.paid)}</td><td style="color:#dc2626;font-weight:700;">${fmt(f.balance)}</td></tr>`).join('');
+  const w = window.open('','_blank','width=900,height=700');
+  w.document.write(`<!DOCTYPE html><html><head><title>Arrears Report</title><style>
+    body{font-family:Arial,sans-serif;padding:30px;color:#111;} h1{font-size:20px;margin:0;} h2{font-size:14px;color:#555;margin:4px 0 20px;}
+    table{width:100%;border-collapse:collapse;margin-top:12px;} th,td{border:1px solid #ddd;padding:8px 10px;font-size:13px;}
+    th{background:#f3f4f6;font-weight:700;} tr:nth-child(even){background:#fafafa;}
+    .total-row{background:#fee2e2;font-weight:700;} @media print{button{display:none;}}
+  </style></head><body>
+    <div style="text-align:center;margin-bottom:20px;">
+      <h1>${school}</h1><h2>Fee Arrears Report — ${clsF} — ${date}</h2>
+    </div>
+    <div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:6px;padding:10px;margin-bottom:16px;text-align:center;font-size:15px;font-weight:700;color:#dc2626;">
+      ${data.length} pupil(s) with outstanding fees &nbsp;|&nbsp; Total Arrears: ${fmt(total)}
+    </div>
+    <table><thead><tr><th>#</th><th>Pupil</th><th>Class</th><th>Term</th><th>Amount Due</th><th>Amount Paid</th><th>Arrears</th></tr></thead>
+    <tbody>${rows}<tr class="total-row"><td colspan="6" style="text-align:right;padding-right:12px;">TOTAL ARREARS</td><td style="color:#dc2626;">${fmt(total)}</td></tr></tbody></table>
+    <p style="margin-top:20px;font-size:11px;color:#888;text-align:center;">Generated by EduManage Pro · ${date}</p>
+    <div style="text-align:center;margin-top:16px;"><button onclick="window.print()" style="padding:8px 24px;background:#3b82f6;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;">🖨️ Print / Save as PDF</button></div>
+  </body></html>`);
+  w.document.close();
+}
+
+function showPaymentStatement() {
+  const classes = [...new Set(state.fees.map(f=>f.cls).filter(Boolean))].sort();
+  const cf = document.getElementById('statementClassFilter');
+  if (cf) cf.innerHTML = '<option value="">All Classes</option>'+classes.map(c=>`<option>${c}</option>`).join('');
+  populateStatementPupils();
+  document.getElementById('paymentStatementModal').classList.add('open');
+}
+
+function populateStatementPupils() {
+  const clsF = document.getElementById('statementClassFilter')?.value || '';
+  let fees = state.fees;
+  if (clsF) fees = fees.filter(f=>f.cls===clsF);
+  const pupils = [...new Set(fees.map(f=>f.student))].sort();
+  const sel = document.getElementById('statementPupilFilter');
+  if (sel) sel.innerHTML = '<option value="">All Pupils</option>'+pupils.map(p=>`<option>${escHtml(p)}</option>`).join('');
+}
+
+function renderPaymentStatement() {
+  const pupil = document.getElementById('statementPupilFilter')?.value || '';
+  const cls   = document.getElementById('statementClassFilter')?.value || '';
+  const term  = document.getElementById('statementTermFilter')?.value  || '';
+  let data = [...state.fees];
+  if (pupil) data = data.filter(f=>f.student===pupil);
+  if (cls)   data = data.filter(f=>f.cls===cls);
+  if (term)  data = data.filter(f=>f.term===term);
+  data.sort((a,b)=>a.student.localeCompare(b.student));
+
+  const wrap = document.getElementById('paymentStatementWrap');
+  if (!data.length) { wrap.innerHTML='<p style="text-align:center;color:var(--text-muted);padding:20px;">No records match this filter.</p>'; return; }
+  const totalDue = data.reduce((a,f)=>a+f.due,0);
+  const totalPaid= data.reduce((a,f)=>a+f.paid,0);
+  const totalBal = totalDue - totalPaid;
+  wrap.innerHTML=`
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
+      <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:10px;text-align:center;"><div style="font-size:11px;color:#16a34a;font-weight:700;">TOTAL DUE</div><div style="font-size:18px;font-weight:800;color:#15803d;">${fmt(totalDue)}</div></div>
+      <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:10px;text-align:center;"><div style="font-size:11px;color:#16a34a;font-weight:700;">TOTAL PAID</div><div style="font-size:18px;font-weight:800;color:#15803d;">${fmt(totalPaid)}</div></div>
+      <div style="background:${totalBal>0?'#fee2e2':'#f0fdf4'};border:1px solid ${totalBal>0?'#fca5a5':'#86efac'};border-radius:8px;padding:10px;text-align:center;"><div style="font-size:11px;color:${totalBal>0?'#dc2626':'#16a34a'};font-weight:700;">BALANCE</div><div style="font-size:18px;font-weight:800;color:${totalBal>0?'#dc2626':'#15803d'};">${fmt(totalBal)}</div></div>
+    </div>
+    <div class="table-wrap"><table class="data-table">
+      <thead><tr><th>#</th><th>Pupil</th><th>Class</th><th>Term</th><th>Due</th><th>Paid</th><th>Balance</th><th>Status</th></tr></thead>
+      <tbody>${data.map((f,i)=>{
+        const bal=f.due-f.paid;
+        return `<tr><td>${i+1}</td><td>${escHtml(f.student)}</td><td>${escHtml(f.cls||'—')}</td><td>${escHtml(f.term||'—')}</td><td>${fmt(f.due)}</td><td style="color:var(--green);">${fmt(f.paid)}</td><td style="color:${bal>0?'var(--red)':'var(--green)'};">${fmt(bal)}</td><td>${statusPill(getStatus(f.due,f.paid))}</td></tr>`;
+      }).join('')}</tbody>
+    </table></div>`;
+}
+
+function printPaymentStatement() {
+  const pupil = document.getElementById('statementPupilFilter')?.value || 'All Pupils';
+  const cls   = document.getElementById('statementClassFilter')?.value || 'All Classes';
+  const term  = document.getElementById('statementTermFilter')?.value  || 'All Terms';
+  let data = [...state.fees];
+  if (pupil && pupil!=='All Pupils') data = data.filter(f=>f.student===pupil);
+  if (cls && cls!=='All Classes')   data = data.filter(f=>f.cls===cls);
+  if (term && term!=='All Terms')   data = data.filter(f=>f.term===term);
+  data.sort((a,b)=>a.student.localeCompare(b.student));
+  const school = state.settings.schoolName||'School';
+  const date   = new Date().toLocaleDateString('en-GH',{year:'numeric',month:'long',day:'numeric'});
+  const totalDue=data.reduce((a,f)=>a+f.due,0), totalPaid=data.reduce((a,f)=>a+f.paid,0), totalBal=totalDue-totalPaid;
+  const rows = data.map((f,i)=>{const bal=f.due-f.paid;return `<tr><td>${i+1}</td><td>${f.student}</td><td>${f.cls||'—'}</td><td>${f.term||'—'}</td><td>${fmt(f.due)}</td><td>${fmt(f.paid)}</td><td style="color:${bal>0?'#dc2626':'#16a34a'};font-weight:${bal>0?700:400};">${fmt(bal)}</td><td>${getStatus(f.due,f.paid)}</td></tr>`;}).join('');
+  const w=window.open('','_blank','width=900,height=700');
+  w.document.write(`<!DOCTYPE html><html><head><title>Payment Statement</title><style>
+    body{font-family:Arial,sans-serif;padding:30px;color:#111;} h1{font-size:20px;margin:0;} h2{font-size:13px;color:#555;margin:4px 0 20px;}
+    table{width:100%;border-collapse:collapse;margin-top:12px;} th,td{border:1px solid #ddd;padding:8px 10px;font-size:12px;}
+    th{background:#f3f4f6;font-weight:700;} tr:nth-child(even){background:#fafafa;} .sum{font-weight:700;background:#f0fdf4;}
+    @media print{button{display:none;}}
+  </style></head><body>
+    <div style="text-align:center;margin-bottom:16px;"><h1>${school}</h1><h2>Payment Statement · ${pupil} · ${cls} · ${term} · ${date}</h2></div>
+    <div style="display:flex;gap:16px;margin-bottom:16px;">
+      <div style="flex:1;background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:10px;text-align:center;"><div style="font-size:11px;font-weight:700;color:#16a34a;">TOTAL DUE</div><div style="font-size:18px;font-weight:800;">${fmt(totalDue)}</div></div>
+      <div style="flex:1;background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:10px;text-align:center;"><div style="font-size:11px;font-weight:700;color:#16a34a;">TOTAL PAID</div><div style="font-size:18px;font-weight:800;">${fmt(totalPaid)}</div></div>
+      <div style="flex:1;background:${totalBal>0?'#fee2e2':'#f0fdf4'};border:1px solid ${totalBal>0?'#fca5a5':'#86efac'};border-radius:6px;padding:10px;text-align:center;"><div style="font-size:11px;font-weight:700;color:${totalBal>0?'#dc2626':'#16a34a'};">BALANCE</div><div style="font-size:18px;font-weight:800;color:${totalBal>0?'#dc2626':'#16a34a'};">${fmt(totalBal)}</div></div>
+    </div>
+    <table><thead><tr><th>#</th><th>Pupil</th><th>Class</th><th>Term</th><th>Due</th><th>Paid</th><th>Balance</th><th>Status</th></tr></thead>
+    <tbody>${rows}</tbody></table>
+    <p style="margin-top:16px;font-size:11px;color:#888;text-align:center;">Generated by EduManage Pro · ${date}</p>
+    <div style="text-align:center;margin-top:14px;"><button onclick="window.print()" style="padding:8px 24px;background:#3b82f6;color:#fff;border:none;border-radius:6px;cursor:pointer;">🖨️ Print / Save as PDF</button></div>
+  </body></html>`);
+  w.document.close();
+}
+
 function initFees() {
   renderFees();
   document.getElementById('feeSearch').addEventListener('input',function(){ renderFees(this.value, document.getElementById('feeStatusFilter').value); });
   document.getElementById('feeStatusFilter').addEventListener('change',function(){ renderFees(document.getElementById('feeSearch').value,this.value); });
+  // When term changes in modal, recalculate arrears for selected pupil
+  document.getElementById('fTerm')?.addEventListener('change', function() {
+    const selId = document.getElementById('fStudentSelect')?.value;
+    if (selId) autoFillFeeFromPupil(selId);
+  });
   document.getElementById('recordFeeBtn').addEventListener('click',()=>{
     document.getElementById('feeModalTitle').textContent='Record Fee Payment';
     document.getElementById('fEditId').value='';
@@ -2172,11 +3177,21 @@ function initFees() {
   });
   document.getElementById('closeFeeModal').addEventListener('click',()=>document.getElementById('feeModal').classList.remove('open'));
   document.getElementById('cancelFeeModal').addEventListener('click',()=>document.getElementById('feeModal').classList.remove('open'));
+  // Re-fill fee from structure whenever term changes
+  const fTermEl = document.getElementById('fTerm');
+  if (fTermEl) {
+    fTermEl.addEventListener('change', function() {
+      const selPupil = document.getElementById('fStudentSelect')?.value;
+      if (selPupil) autoFillFeeFromPupil(selPupil);
+    });
+  }
   document.getElementById('saveFeeBtn').addEventListener('click', saveFee);
   document.getElementById('printReceiptBtn').addEventListener('click', printFeeReceipt);
 
   // Bulk Fee Setup: set fee for all pupils in a class at once
   document.getElementById('bulkFeeBtn') && document.getElementById('bulkFeeBtn').addEventListener('click', openBulkFeeModal);
+  document.getElementById('feeStructureBtn') && document.getElementById('feeStructureBtn').addEventListener('click', openFeeStructureModal);
+  initFeeStructure();
 
   // Fee Bill Generator
   document.getElementById('generateBillBtn').addEventListener('click',()=>{
@@ -2271,75 +3286,92 @@ function openBulkFeeModal() {
 }
 
 function applyBulkFee() {
-  const cls = document.getElementById('bulkFeeClass').value;
-  const due = parseFloat(document.getElementById('bulkFeeDue').value) || 0;
+  const cls  = document.getElementById('bulkFeeClass').value;
+  const due  = parseFloat(document.getElementById('bulkFeeDue').value) || 0;
   const term = document.getElementById('bulkFeeTerm').value;
-  if (!cls) { showToast('⚠️ Select a class.'); return; }
-  if (due <= 0) { showToast('⚠️ Enter a valid fee amount.'); return; }
+  const year = state.settings.session || '';
+  if (!cls)    { showToast('⚠️ Select a class.'); return; }
+  if (due <= 0){ showToast('⚠️ Enter a valid fee amount.'); return; }
 
-  const pupils = state.students.filter(s => s.cls === cls);
-  if (!pupils.length) { showToast('⚠️ No pupils found in ' + cls); return; }
-
-  let updated = 0, created = 0;
-  pupils.forEach(p => {
-    const name = `${p.first} ${p.last}`;
-    const existing = state.fees.find(f => f.studentId === p.id || (f.student === name && f.cls === cls));
-    if (existing) {
-      existing.due = due;
-      existing.term = term;
-      existing.cls = cls;
-      updated++;
-    } else {
-      state.fees.push({ id: state.nextFeeId++, student: name, cls, due, paid: 0, term, studentId: p.id });
-      created++;
-    }
-  });
-
+  // Save to fee structure table (single source of truth — not on fee records)
+  setFeeStructure(cls, term, year, due);
   renderFees(); updateFeeStats(); autosave();
   document.getElementById('bulkFeeModal').classList.remove('open');
-  showToast(`✅ ${created} created, ${updated} updated for ${cls} — GH₵${due} per pupil.`);
+  showToast('✅ Fee structure set: ' + cls + ' · ' + term + ' = GH₳' + due.toFixed(2));
 }
 
 function quickPrintFeeReceipt(feeId) {
-  const f = state.fees.find(f => f.id === feeId); if (!f) return;
-  const pupil = state.students.find(s => s.id === f.studentId || `${s.first} ${s.last}` === f.student);
-  const school = state.settings;
-  const bal = f.due - f.paid;
-  const status = getStatus(f.due, f.paid);
-  const logoHtml = state.schoolLogo ? `<img src="${state.schoolLogo}" style="height:70px;object-fit:contain;"/>` : '🏫';
-  const win = window.open('', '_blank');
-  win.document.write(`<!DOCTYPE html><html><head><title>Receipt — ${f.student}</title><style>
-    body{font-family:'Segoe UI',Arial,sans-serif;max-width:500px;margin:30px auto;color:#1a2133;font-size:14px;}
-    .header{text-align:center;margin-bottom:16px;}
-    h1{font-size:18px;font-weight:800;margin:4px 0;}
-    h2{font-size:13px;color:#64748b;margin:2px 0;}
-    .receipt-title{background:#16a34a;color:#fff;text-align:center;padding:8px;border-radius:8px;font-weight:700;font-size:16px;margin:16px 0 12px;}
-    .row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #dde3ef;font-size:13px;}
-    .total{font-weight:800;font-size:15px;color:#16a34a;}
-    .stamp{display:inline-block;border:2px solid #16a34a;color:#16a34a;padding:6px 20px;border-radius:4px;font-weight:700;font-size:13px;margin-top:14px;}
-    .footer{margin-top:16px;font-size:11px;color:#94a3b8;text-align:center;border-top:1px solid #dde3ef;padding-top:10px;}
-  </style></head><body>
-    <div class="header">${logoHtml}<h1>${school.schoolName||'School'}</h1><h2>Official Payment Receipt</h2></div>
-    <div class="receipt-title">PAYMENT RECEIPT</div>
-    <div class="row"><span>Receipt No.</span><span>REC-${String(feeId).padStart(5,'0')}</span></div>
-    <div class="row"><span>Date</span><span>${new Date().toLocaleDateString('en-GH')}</span></div>
-    <div class="row"><span>Pupil</span><span><strong>${f.student}</strong></span></div>
-    <div class="row"><span>Class</span><span>${pupil ? pupil.cls : f.cls}</span></div>
-    <div class="row"><span>Term</span><span>${f.term || school.term || '—'}</span></div>
-    ${pupil && pupil.phone ? `<div class="row"><span>Guardian Phone</span><span>${pupil.phone}</span></div>` : ''}
-    <div class="row"><span>Total Fee Due</span><span>GH₵ ${Number(f.due).toFixed(2)}</span></div>
-    <div class="row total"><span>Amount Paid</span><span>GH₵ ${Number(f.paid).toFixed(2)}</span></div>
-    <div class="row" style="color:${bal>0?'#dc2626':'#16a34a'};font-weight:700;"><span>Balance</span><span>GH₵ ${Number(bal).toFixed(2)}</span></div>
-    <div style="text-align:center;margin-top:16px;">
-      ${bal<=0 ? '<span class="stamp">✅ FULLY PAID</span>' : `<span class="stamp" style="border-color:#d97706;color:#d97706;">⚠️ BALANCE: GH₵${bal.toFixed(2)}</span>`}
-    </div>
-    <div style="margin-top:28px;display:flex;justify-content:space-between;font-size:12px;">
-      <div>Cashier: ____________________</div><div>Signature: __________________</div>
-    </div>
-    <div class="footer">${school.schoolName||'School'} · EduManage Pro · ${new Date().toLocaleDateString('en-GH')}</div>
-  <script>window.onload=function(){window.print();}<\/script></body></html>`);
-  win.document.close();
+  const f = state.fees.find(x => x.id === feeId); if (!f) return;
+  const payments = f.payments && f.payments.length
+    ? f.payments
+    : (f.paid > 0 ? [{ amt: f.paid, date: (f.createdAt||'').slice(0,10)||'—', note:'', method:'Cash', receiptNo:'—' }] : []);
+  if (!payments.length) { showToast('No payments to print.'); return; }
+  const lastPay  = payments[payments.length - 1];
+  const termDue  = getDueForRecord(f) + (f.arrears||0);
+  const totalPaid= payments.reduce((a,p) => a + p.amt, 0);
+  const balance  = termDue - totalPaid;
+  const school   = state.settings.schoolName || 'School';
+  const address  = state.settings.address || '';
+  const dateStr  = new Date().toLocaleDateString('en-GH', {year:'numeric', month:'long', day:'numeric'});
+
+  const noteRow   = lastPay.note
+    ? '<div class="row"><span class="label">Note</span><span class="val">' + escHtml(lastPay.note) + '</span></div>'
+    : '';
+  const paidStamp = balance <= 0
+    ? '<div style="font-size:12px;color:#16a34a;font-weight:700;margin-top:4px;">&#10003; FULLY PAID</div>'
+    : '';
+  const balBg     = balance > 0 ? '#fee2e2' : '#f0fdf4';
+  const balBdr    = balance > 0 ? '#fca5a5' : '#86efac';
+  const balColor  = balance > 0 ? '#dc2626' : '#16a34a';
+
+  const html = '<!DOCTYPE html><html><head><title>Receipt ' + (lastPay.receiptNo||'') + '</title>'
+    + '<style>'
+    + 'body{font-family:Arial,sans-serif;max-width:380px;margin:20px auto;padding:20px;color:#111;border:2px solid #1d4ed8;border-radius:10px;}'
+    + '.logo{text-align:center;font-size:18px;font-weight:800;color:#1d4ed8;}'
+    + '.rcpt-no{text-align:center;background:#f0f4ff;border-radius:6px;padding:6px;margin:10px 0;font-size:13px;font-weight:700;color:#1d4ed8;letter-spacing:1px;}'
+    + '.row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:13px;}'
+    + '.label{color:#666;}.val{font-weight:700;}'
+    + '.amount-box{text-align:center;background:#f0fdf4;border:2px solid #86efac;border-radius:8px;padding:12px;margin:14px 0;}'
+    + '.footer{text-align:center;font-size:10px;color:#9ca3af;margin-top:14px;}'
+    + '@media print{button{display:none;}}'
+    + '</style></head><body>'
+    + '<div class="logo">' + school + '</div>'
+    + '<div style="text-align:center;font-size:11px;color:#555;margin-bottom:8px;">' + address + '</div>'
+    + '<div style="text-align:center;font-weight:700;font-size:13px;margin-bottom:6px;color:#333;">OFFICIAL PAYMENT RECEIPT</div>'
+    + '<div class="rcpt-no">&#x1F9FE; ' + (lastPay.receiptNo||'RCPT-—') + '</div>'
+    + '<div class="row"><span class="label">Student</span><span class="val">' + escHtml(f.student) + '</span></div>'
+    + '<div class="row"><span class="label">Class</span><span class="val">' + (f.cls||'—') + '</span></div>'
+    + '<div class="row"><span class="label">Term</span><span class="val">' + (f.term||'—') + '</span></div>'
+    + '<div class="row"><span class="label">Date of Payment</span><span class="val">' + (lastPay.date||'—') + '</span></div>'
+    + '<div class="row"><span class="label">Payment Method</span><span class="val">' + (lastPay.method||'Cash') + '</span></div>'
+    + '<div class="row"><span class="label">Received By</span><span class="val">' + (lastPay.rcvdBy||'Admin') + '</span></div>'
+    + noteRow
+    + '<div class="amount-box">'
+    +   '<div style="font-size:11px;font-weight:700;color:#16a34a;margin-bottom:4px;">AMOUNT RECEIVED</div>'
+    +   '<div style="font-size:28px;font-weight:800;color:#16a34a;">GH&#8373;' + lastPay.amt.toFixed(2) + '</div>'
+    + '</div>'
+    + '<div class="row"><span class="label">Term Fee Due</span><span class="val">GH&#8373;' + termDue.toFixed(2) + '</span></div>'
+    + '<div class="row"><span class="label">Total Paid (all payments)</span><span class="val" style="color:#16a34a;">GH&#8373;' + totalPaid.toFixed(2) + '</span></div>'
+    + '<div style="text-align:center;padding:10px;margin-bottom:12px;border-radius:8px;background:' + balBg + ';border:1px solid ' + balBdr + ';">'
+    +   '<div style="font-size:11px;font-weight:700;color:' + balColor + ';">OUTSTANDING BALANCE</div>'
+    +   '<div style="font-size:22px;font-weight:800;color:' + balColor + ';">GH&#8373;' + balance.toFixed(2) + '</div>'
+    +   paidStamp
+    + '</div>'
+    + '<div style="display:flex;gap:8px;margin-bottom:6px;">'
+    +   '<div style="flex:1;border-top:1px solid #ccc;padding-top:6px;font-size:11px;text-align:center;">Received by: _______________</div>'
+    +   '<div style="flex:1;border-top:1px solid #ccc;padding-top:6px;font-size:11px;text-align:center;">Parent Signature: _______________</div>'
+    + '</div>'
+    + '<div class="footer">EduManage Pro &middot; Ghana Education Service &middot; ' + dateStr + '</div>'
+    + '<div style="text-align:center;margin-top:12px;"><button onclick="window.print()" style="padding:7px 22px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;">&#128424; Print Receipt</button></div>'
+    + '</body></html>';
+
+  const w = window.open('', '_blank', 'width=480,height=680');
+  w.document.write(html);
+  w.document.close();
 }
+
+
+
 
 function printFeeReceipt() {
   const student = document.getElementById('fStudentName').value.trim();
@@ -2391,60 +3423,195 @@ function printFeeReceipt() {
   win.document.close();
 }
 
+// ── FEE PAYMENT LOG SYSTEM ──
+// Each fee record = one term for one pupil.
+// Payments are logged individually: f.payments = [{amt, date, note}]
+// Arrears from prior terms auto-carry into new term records.
+
+let _feePaymentDraft = []; // working copy of payment log in the open modal
+
+function addPaymentEntry() {
+  const amt    = parseFloat(document.getElementById('fNewPayAmt').value) || 0;
+  const date   = document.getElementById('fNewPayDate').value || new Date().toISOString().slice(0,10);
+  const note   = document.getElementById('fNewPayNote').value.trim() || '';
+  const method = document.getElementById('fNewPayMethod')?.value || 'Cash';
+  const rcvdBy = (state.currentUser && state.currentUser.name) || 'Admin';
+  if (amt <= 0) { showToast('⚠️ Enter a valid amount.'); return; }
+  // Generate receipt number: RCPT-YEAR-#####
+  const year = new Date().getFullYear();
+  if (!state.nextReceiptId) state.nextReceiptId = 1;
+  const receiptNo = 'RCPT-' + year + '-' + String(state.nextReceiptId++).padStart(5, '0');
+  autosave(); // persist incremented nextReceiptId
+  _feePaymentDraft.push({ amt, date, note, method, rcvdBy, receiptNo, addedAt: new Date().toISOString() });
+  document.getElementById('fNewPayAmt').value  = '';
+  document.getElementById('fNewPayNote').value = '';
+  renderPaymentLogInModal();
+  showToast('✅ Payment entry added — ' + receiptNo);
+}
+
+function removePaymentEntry(idx) {
+  _feePaymentDraft.splice(idx, 1);
+  renderPaymentLogInModal();
+}
+
+function renderPaymentLogInModal() {
+  const log   = document.getElementById('fPaymentLog');
+  const sumEl = document.getElementById('fPaySummary');
+  const due   = parseFloat(document.getElementById('fDue').value) || 0;
+  const arrears = parseFloat(document.getElementById('fArrearsRow')?.dataset?.arrears || 0);
+  const totalDue  = due + arrears;
+  const totalPaid = _feePaymentDraft.reduce((a,p) => a + p.amt, 0);
+  const balance   = totalDue - totalPaid;
+
+  if (!_feePaymentDraft.length) {
+    log.innerHTML = '<p style="text-align:center;color:var(--text-muted);font-size:12px;padding:12px;">No payments recorded yet. Use the form below to add a payment.</p>';
+  } else {
+    // Running balance ledger
+    let running = totalDue;
+    const rows = _feePaymentDraft.map((p, i) => {
+      running -= p.amt;
+      const bal = running;
+      return `<tr>
+        <td style="font-size:11px;color:var(--text-muted);">${p.date||'—'}</td>
+        <td style="font-size:11px;">
+          <span style="background:var(--blue-light);color:var(--blue);border-radius:4px;padding:1px 5px;font-size:10px;font-weight:700;">${escHtml(p.receiptNo||'—')}</span>
+        </td>
+        <td style="color:var(--green);font-weight:700;font-size:13px;">${fmt(p.amt)}</td>
+        <td style="font-size:11px;color:var(--text-muted);">${escHtml(p.method||'Cash')}</td>
+        <td style="font-size:11px;color:var(--text-muted);">${escHtml(p.note||'—')}</td>
+        <td style="font-weight:700;font-size:12px;color:${bal>0?'var(--red)':'var(--green)'};">${fmt(bal)}</td>
+        <td><button onclick="removePaymentEntry(${i})" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:12px;" title="Remove"><i class="fas fa-trash"></i></button></td>
+      </tr>`;
+    }).join('');
+    log.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="background:var(--bg-light);">
+          <th style="padding:4px 6px;text-align:left;">Date</th>
+          <th style="padding:4px 6px;text-align:left;">Receipt #</th>
+          <th style="padding:4px 6px;text-align:left;">Amount</th>
+          <th style="padding:4px 6px;text-align:left;">Method</th>
+          <th style="padding:4px 6px;text-align:left;">Note</th>
+          <th style="padding:4px 6px;text-align:left;">Balance</th>
+          <th style="padding:4px 6px;"></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  if (totalDue > 0) {
+    sumEl.style.display = 'block';
+    sumEl.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+        <div style="text-align:center;padding:8px;background:var(--bg-light);border-radius:6px;">
+          <div style="font-size:10px;color:var(--text-muted);font-weight:700;margin-bottom:2px;">TOTAL DUE</div>
+          <div style="font-weight:800;font-size:16px;">${fmt(totalDue)}</div>
+          ${arrears>0?`<div style="font-size:10px;color:#92400e;">incl. arrears ${fmt(arrears)}</div>`:''}
+        </div>
+        <div style="text-align:center;padding:8px;background:#f0fdf4;border-radius:6px;">
+          <div style="font-size:10px;color:var(--green);font-weight:700;margin-bottom:2px;">TOTAL PAID</div>
+          <div style="font-weight:800;font-size:16px;color:var(--green);">${fmt(totalPaid)}</div>
+          <div style="font-size:10px;color:var(--text-muted);">${_feePaymentDraft.length} payment${_feePaymentDraft.length!==1?'s':''}</div>
+        </div>
+        <div style="text-align:center;padding:8px;background:${balance>0?'#fee2e2':'#f0fdf4'};border-radius:6px;">
+          <div style="font-size:10px;color:${balance>0?'var(--red)':'var(--green)'};font-weight:700;margin-bottom:2px;">BALANCE</div>
+          <div style="font-weight:800;font-size:16px;color:${balance>0?'var(--red)':'var(--green)'};">${fmt(balance)}</div>
+          <div style="font-size:10px;color:var(--text-muted);">${balance<=0?'✅ Fully Paid':'⚠ Outstanding'}</div>
+        </div>
+      </div>`;
+  } else { sumEl.style.display = 'none'; }
+}
+
 function saveFee() {
   const student = document.getElementById('fStudentName').value.trim();
-  const cls = document.getElementById('fClass').value || '';
-  const due = parseFloat(document.getElementById('fDue').value) || 0;
-  const paid = parseFloat(document.getElementById('fPaid').value) || 0;
-  const term = (document.getElementById('fTerm') && document.getElementById('fTerm').value) || state.settings.term || '';
-  const editId = document.getElementById('fEditId').value;
-  const selId = document.getElementById('fStudentSelect') ? parseInt(document.getElementById('fStudentSelect').value) : null;
+  const cls     = document.getElementById('fClass').value || '';
+  const term    = document.getElementById('fTerm')?.value || state.settings.term || '';
+  const year    = state.settings.session || '';
+  const editId  = document.getElementById('fEditId').value;
+  const selId   = parseInt(document.getElementById('fStudentSelect')?.value) || null;
+  const arrears = parseFloat(document.getElementById('fArrearsRow')?.dataset?.arrears || 0);
 
-  if (!student) { showToast('⚠️ Select or enter a pupil name.'); return; }
-  if (due <= 0) { showToast('⚠️ Enter a valid fee amount.'); return; }
+  if (!student) { showToast('⚠️ Select a pupil.'); return; }
+
+  // Always derive due from fee structure — never accept manual input
+  const structAmt = getFeeFromStructure(cls, term, year);
+  if (structAmt === null || structAmt <= 0) {
+    showToast('⚠️ No fee set for ' + cls + ' · ' + term + '. Set it in Fee Structure first.'); return;
+  }
+  const due = structAmt;
+
+  const totalPaid = _feePaymentDraft.reduce((a,p) => a + p.amt, 0);
+  const totalDue  = due + arrears;
 
   if (editId) {
     const f = state.fees.find(f => f.id === parseInt(editId));
-    if (f) { f.student=student; f.cls=cls||f.cls; f.due=due; f.paid=Math.min(paid,due); f.term=term; if(selId) f.studentId=selId; }
+    if (f) {
+      // Update metadata (due, term, class) but NEVER overwrite payment history —
+      // _feePaymentDraft IS the full authoritative payment log for this record.
+      f.student = student; f.cls = cls||f.cls; f.due = due; f.arrears = arrears; f.term = term;
+      f.payments = [..._feePaymentDraft]; // ledger: immutable transaction array
+      f.paid = f.payments.reduce((a,p) => a + p.amt, 0); // always derived from transactions
+      if (selId) f.studentId = selId;
+    }
     showToast(`✅ Fee record updated for ${student}!`);
   } else {
-    state.fees.push({ id:state.nextFeeId++, student, cls, due, paid:Math.min(paid,due), term, studentId: selId||null });
+    state.fees.push({
+      id: state.nextFeeId++, student, cls, due, arrears,
+      payments: [..._feePaymentDraft],   // transaction ledger
+      paid: totalPaid,                   // derived; kept in sync
+      term, studentId: selId || null,
+      createdAt: new Date().toISOString()
+    });
     showToast(`✅ Fee recorded for ${student}!`);
   }
 
-  // Sync feeStatus back onto the student record
   const pupil = state.students.find(s => s.id === selId || `${s.first} ${s.last}` === student);
-  if (pupil) { pupil.feeStatus = getStatus(due, Math.min(paid, due)); }
+  if (pupil) pupil.feeStatus = getStatus(totalDue, totalPaid);
 
   renderFees(); renderStudents();
   document.getElementById('printReceiptBtn').style.display = 'inline-flex';
-  updateFeeStats(); updateDashStats();
-  autosave();
+  updateFeeStats(); updateDashStats(); autosave();
 }
 
 function editFeeRecord(id) {
-  const f=state.fees.find(f=>f.id===id); if (!f) return;
-  document.getElementById('feeModalTitle').textContent='Edit Fee Record';
-  document.getElementById('fEditId').value=id;
-  document.getElementById('fStudentName').value=f.student;
-  document.getElementById('fClass').value=f.cls;
-  document.getElementById('fDue').value=f.due;
-  document.getElementById('fPaid').value=f.paid;
+  const f = state.fees.find(f => f.id === id); if (!f) return;
+  document.getElementById('feeModalTitle').textContent = 'Edit Fee Record';
+  document.getElementById('fEditId').value = id;
+  document.getElementById('fStudentName').value = f.student;
+  document.getElementById('fClass').value = f.cls;
+  const fDueEl2 = document.getElementById('fDue');
+  const structAmt2 = getFeeFromStructure(f.cls, f.term, f.year || state.settings.session);
+  fDueEl2.value = structAmt2 !== null ? structAmt2 : f.due;
+  fDueEl2.readOnly = structAmt2 !== null;
+  fDueEl2.style.background = structAmt2 !== null ? 'var(--bg-light)' : '';
+  fDueEl2.style.color = structAmt2 !== null ? 'var(--text-muted)' : '';
+  fDueEl2.style.cursor = structAmt2 !== null ? 'not-allowed' : '';
+  const termEl = document.getElementById('fTerm'); if (termEl && f.term) termEl.value = f.term;
+  const arrEl = document.getElementById('fArrearsRow');
+  if (arrEl) { arrEl.dataset.arrears = f.arrears||0; if (f.arrears>0) { arrEl.style.display='block'; document.getElementById('fArrearsAmt').textContent=fmt(f.arrears); } else arrEl.style.display='none'; }
+  const infoEl = document.getElementById('feeAutoFilledInfo'); if (infoEl) infoEl.style.display='flex';
+  _feePaymentDraft = f.payments ? [...f.payments] : (f.paid > 0 ? [{amt:f.paid, date:f.createdAt?.slice(0,10)||new Date().toISOString().slice(0,10), note:''}] : []);
+  renderPaymentLogInModal();
   document.getElementById('feeModal').classList.add('open');
 }
 
 function deleteFee(id) {
   if (!confirm('Delete this fee record?')) return;
-  state.fees=state.fees.filter(f=>f.id!==id); renderFees(); autosave(); showToast('🗑️ Record removed.');
+  state.fees = state.fees.filter(f => f.id !== id);
+  renderFees(); autosave(); showToast('🗑️ Record removed.');
 }
-function clearFeeModal(){
-  ['fDue','fPaid','fStudentName','fClass'].forEach(i=>{ const el=document.getElementById(i); if(el) el.value=''; });
-  const fSel=document.getElementById('fStudentSelect');
-  if(fSel) fSel.value='';
-  const info=document.getElementById('feeAutoFilledInfo');
-  if(info) info.style.display='none';
-  const warn=document.getElementById('feeExistingWarning');
-  if(warn) warn.style.display='none';
+
+function clearFeeModal() {
+  ['fDue','fStudentName','fClass'].forEach(i => { const el=document.getElementById(i); if(el) el.value=''; });
+  const fSel = document.getElementById('fStudentSelect'); if (fSel) fSel.value = '';
+  const info = document.getElementById('feeAutoFilledInfo'); if (info) info.style.display='none';
+  const warn = document.getElementById('feeExistingWarning'); if (warn) warn.style.display='none';
+  const arrEl = document.getElementById('fArrearsRow'); if (arrEl) { arrEl.style.display='none'; arrEl.dataset.arrears='0'; }
+  const sumEl = document.getElementById('fPaySummary'); if (sumEl) sumEl.style.display='none';
+  _feePaymentDraft = [];
+  renderPaymentLogInModal();
+  // Set default date for new payment
+  const dateEl = document.getElementById('fNewPayDate');
+  if (dateEl) dateEl.value = new Date().toISOString().slice(0,10);
 }
 
 // ── GALLERY ──
@@ -2685,10 +3852,13 @@ function renderTeachers(filter='', cls='') {
   if (filter) data=data.filter(t=>`${t.first} ${t.last}`.toLowerCase().includes(filter.toLowerCase()));
   if (cls) data=data.filter(t=>t.assigned.includes(cls));
   if (!data.length){ tbody.innerHTML=`<tr><td colspan="6" style="text-align:center;color:var(--text-light);padding:28px;">No teachers found.</td></tr>`; renderTeacherCards(data); return; }
-  tbody.innerHTML=data.map((t,i)=>`
-    <tr>
+  tbody.innerHTML=data.map((t,i)=>{
+    const photoHtml = t.photo
+      ? `<img src="${t.photo}" style="width:30px;height:30px;border-radius:50%;object-fit:cover;margin-right:8px;vertical-align:middle;border:1px solid var(--border);"/>`
+      : `<span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:${AVATAR_COLORS[i%AVATAR_COLORS.length]};color:#fff;font-size:11px;font-weight:700;margin-right:8px;">${t.first.charAt(0)}${t.last.charAt(0)}</span>`;
+    return `<tr>
       <td>${i+1}</td>
-      <td><strong>${t.first} ${t.last}</strong></td>
+      <td><div style="display:flex;align-items:center;">${photoHtml}<strong>${t.first} ${t.last}</strong></div></td>
       <td>${t.subject}</td>
       <td>${t.assigned}</td>
       <td>${t.qualification}</td>
@@ -2696,27 +3866,61 @@ function renderTeachers(filter='', cls='') {
         <button class="tbl-btn" onclick="editTeacher(${t.id})"><i class="fas fa-edit"></i> Edit</button>
         <button class="tbl-btn danger" onclick="deleteTeacher(${t.id})"><i class="fas fa-trash"></i></button>
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
   renderTeacherCards(data);
 }
 
 function renderTeacherCards(data) {
   const c=document.getElementById('teachersGrid');
   if (!data.length){ c.innerHTML=''; return; }
-  c.innerHTML=data.map((t,i)=>`
-    <div class="teacher-card">
-      <div class="teacher-avatar" style="background:${AVATAR_COLORS[i%AVATAR_COLORS.length]}">${t.first.charAt(0)}${t.last.charAt(0)}</div>
+  c.innerHTML=data.map((t,i)=>{
+    const avatarHtml = t.photo
+      ? `<img src="${t.photo}" style="width:64px;height:64px;border-radius:50%;object-fit:cover;margin-bottom:8px;border:2px solid var(--border);"/>`
+      : `<div class="teacher-avatar" style="background:${AVATAR_COLORS[i%AVATAR_COLORS.length]}">${t.first.charAt(0)}${t.last.charAt(0)}</div>`;
+    return `<div class="teacher-card">
+      ${avatarHtml}
       <div class="teacher-name">${t.first} ${t.last}</div>
       <div class="teacher-subject">${t.subject}</div>
       <span class="teacher-class">${t.assigned}</span>
       <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${t.qualification}</div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function initTeachers() {
   renderTeachers();
   document.getElementById('teacherSearch').addEventListener('input',function(){ renderTeachers(this.value, document.getElementById('teacherClassFilter').value); });
   document.getElementById('teacherClassFilter').addEventListener('change',function(){ renderTeachers(document.getElementById('teacherSearch').value,this.value); });
+  // Teacher photo input handler
+  document.getElementById('tPhotoInput') && document.getElementById('tPhotoInput').addEventListener('change', function() {
+    const file = this.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const prev = document.getElementById('tPhotoPreview');
+      const ini  = document.getElementById('tPhotoInitials');
+      const clr  = document.getElementById('tPhotoClear');
+      if (prev) { prev.src = ev.target.result; prev.style.display='block'; prev.dataset.photo = ev.target.result; }
+      if (ini)  ini.style.display='none';
+      if (clr)  clr.style.display='block';
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // Update initials in photo circle as name is typed
+  ['tFirst','tLast'].forEach(id => {
+    document.getElementById(id)?.addEventListener('input', () => {
+      const ini = document.getElementById('tPhotoInitials');
+      const prev = document.getElementById('tPhotoPreview');
+      if (ini && (!prev || !prev.src)) {
+        const f = document.getElementById('tFirst')?.value?.charAt(0)||'';
+        const l = document.getElementById('tLast')?.value?.charAt(0)||'';
+        ini.textContent = (f+l).toUpperCase() || '?';
+      }
+    });
+  });
+
   document.getElementById('addTeacherBtn').addEventListener('click',()=>{
     document.getElementById('teacherModalTitle').textContent='Add Teacher';
     document.getElementById('tEditId').value='';
@@ -2736,13 +3940,14 @@ function saveTeacher() {
   const qualification=document.getElementById('tQualification').value;
   const phone=document.getElementById('tPhone').value.trim();
   const editId=document.getElementById('tEditId').value;
+  const photoData = document.getElementById('tPhotoPreview')?.dataset?.photo || null;
   if (!first||!last){ showToast('⚠️ Enter teacher\'s full name.'); return; }
   if (editId){
     const t=state.teachers.find(t=>t.id===parseInt(editId));
-    if (t){ t.first=first; t.last=last; t.subject=subject||'TBA'; t.assigned=assigned||'TBA'; t.qualification=qualification; t.phone=phone; }
+    if (t){ t.first=first; t.last=last; t.subject=subject||'TBA'; t.assigned=assigned||'TBA'; t.qualification=qualification; t.phone=phone; if(photoData!==null) t.photo=photoData||null; }
     showToast(`✅ ${first} ${last} updated!`);
   } else {
-    state.teachers.push({id:state.nextTeacherId++,first,last,subject:subject||'TBA',assigned:assigned||'TBA',qualification,phone});
+    state.teachers.push({id:state.nextTeacherId++,first,last,subject:subject||'TBA',assigned:assigned||'TBA',qualification,phone,photo:photoData||null});
     showToast(`✅ ${first} ${last} added to staff!`);
     // Auto-create Teacher user account
     const newTeacher = state.teachers[state.teachers.length - 1];
@@ -2762,6 +3967,19 @@ function editTeacher(id) {
   document.getElementById('tAssigned').value=t.assigned;
   document.getElementById('tQualification').value=t.qualification;
   document.getElementById('tPhone').value=t.phone||'';
+  // Load photo
+  const prev = document.getElementById('tPhotoPreview');
+  const ini  = document.getElementById('tPhotoInitials');
+  const clr  = document.getElementById('tPhotoClear');
+  if (t.photo) {
+    if (prev) { prev.src=t.photo; prev.style.display='block'; prev.dataset.photo=t.photo; }
+    if (ini)  ini.style.display='none';
+    if (clr)  clr.style.display='block';
+  } else {
+    if (prev) { prev.src=''; prev.style.display='none'; prev.dataset.photo=''; }
+    if (ini)  { ini.style.display=''; ini.textContent=(t.first.charAt(0)+t.last.charAt(0)).toUpperCase(); }
+    if (clr)  clr.style.display='none';
+  }
   document.getElementById('teacherModal').classList.add('open');
 }
 
@@ -2769,7 +3987,28 @@ function deleteTeacher(id) {
   if (!confirm('Remove this teacher record?')) return;
   state.teachers=state.teachers.filter(t=>t.id!==id); renderTeachers(); updateDashStats(); autosave(); showToast('🗑️ Teacher removed.');
 }
-function clearTeacherModal(){ ['tFirst','tLast','tSubject','tAssigned','tPhone'].forEach(i=>document.getElementById(i).value=''); }
+function clearTeacherModal(){
+  ['tFirst','tLast','tSubject','tAssigned','tPhone'].forEach(i=>document.getElementById(i).value='');
+  const prev = document.getElementById('tPhotoPreview');
+  const ini  = document.getElementById('tPhotoInitials');
+  const clr  = document.getElementById('tPhotoClear');
+  const inp  = document.getElementById('tPhotoInput');
+  if (prev) { prev.src=''; prev.style.display='none'; prev.dataset.photo=''; }
+  if (ini)  { ini.style.display=''; ini.textContent='?'; }
+  if (clr)  clr.style.display='none';
+  if (inp)  inp.value='';
+}
+
+function clearTeacherPhoto() {
+  const prev = document.getElementById('tPhotoPreview');
+  const ini  = document.getElementById('tPhotoInitials');
+  const clr  = document.getElementById('tPhotoClear');
+  const inp  = document.getElementById('tPhotoInput');
+  if (prev) { prev.src=''; prev.style.display='none'; prev.dataset.photo=''; }
+  if (ini)  { ini.style.display=''; ini.textContent = (document.getElementById('tFirst')?.value?.charAt(0)||'?')+(document.getElementById('tLast')?.value?.charAt(0)||''); }
+  if (clr)  clr.style.display='none';
+  if (inp)  inp.value='';
+}
 
 // ── CLASSES ──
 function renderClasses() {
@@ -4643,8 +5882,8 @@ function attemptLogin() {
     document.querySelector('.user-role').textContent   = user.role;
     document.querySelector('.user-avatar').textContent = user.name.charAt(0).toUpperCase();
     document.getElementById('sidebarSchoolName').textContent = state.settings.schoolName;
-    // Suppress autosave during initial render — state is being set up, not modified by user
-    _fbSyncPaused = true;
+    // Suppress outgoing Firebase push during startup render
+    _fbPauseOutgoing = true;
     renderStudents(); renderFees(); renderTeachers(); renderClasses();
     renderGallery(); renderSavedReports(); renderWeekly();
     renderAttendance(); renderUsers(); updateDashStats(); updateFeeStats();
@@ -4666,8 +5905,8 @@ function attemptLogin() {
     resetBtn();
     // Start realtime sync AFTER data is loaded and rendered — not before
     startRealtimeSync(schoolId);
-    // Unpause after a short delay so render-triggered autosaves don't fire immediately
-    setTimeout(() => { _fbSyncPaused = false; }, 3000);
+    // Release outgoing push block after 3s startup window
+    setTimeout(() => { _fbPauseOutgoing = false; }, 3000);
     showToast('Welcome back, ' + user.name + ' - ' + state.settings.schoolName);
   };
   loadSchoolData(schoolKey);
@@ -4821,6 +6060,8 @@ function doLogout() {
   _unsavedChanges   = false;
   _fbDataLoaded     = false;
   _fbKnownSavedAt   = 0;
+  _fbPauseIncoming  = false;
+  _fbPauseOutgoing  = false;
   const portal = document.getElementById('studentPortal');
   if (portal) portal.style.display = 'none';
   showSchoolSelector();

@@ -32,7 +32,7 @@
       <div style="margin-top:20px;padding-top:14px;border-top:1px solid var(--border);text-align:center;font-size:11px;color:var(--text-muted);line-height:1.8;">
         <div style="font-weight:700;font-size:12px;color:var(--text);margin-bottom:2px;"><i class="fas fa-laptop-code" style="color:var(--blue);"></i> TechPoint &amp; Graphics</div>
         <div>CEO: <strong>Mr. Fuseni Dauda</strong></div>
-        <div><i class="fas fa-envelope" style="color:var(--blue);font-size:10px;"></i> <a href="mailto:daudafuseni.df@gmail.com" style="color:var(--blue);text-decoration:none;">daudafuseni.df@gmail.com</a></div>
+        <div><i class="fas fa-envelope" style="color:var(--blue);font-size:10px;"></i> <a href="/cdn-cgi/l/email-protection#fb9f9a8e9f9a9d8e889e9592d59f9dbb9c969a9297d5989496" style="color:var(--blue);text-decoration:none;"><span class="__cf_email__" data-cfemail="c6a2a7b3a2a7a0b3b5a3a8afe8a2a086a1aba7afaae8a5a9ab">[email&#160;protected]</span></a></div>
         <div><i class="fas fa-phone" style="color:var(--blue);font-size:10px;"></i> <a href="tel:+233241215173" style="color:var(--blue);text-decoration:none;">0241215173</a></div>
       </div>
     </div>
@@ -748,10 +748,14 @@
         <div class="card">
           <div class="card-head"><h2 class="card-title"><i class="fas fa-pen-to-square"></i> Create Report Card</h2></div>
           <div class="form-group">
-              <label>Select Enrolled Pupil (optional)</label>
+              <label>Select Enrolled Pupil <span style="color:var(--red)">*</span></label>
               <select class="form-input" id="rStudentSelect" onchange="autoFillReportFromPupil(this.value)">
                 <option value="">-- Pick from enrolled pupils --</option>
               </select>
+            </div>
+            <!-- Shown when an existing report is found and loaded for the selected pupil+term+year -->
+            <div id="rExistingNotice" style="display:none;padding:10px 14px;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;font-size:12px;color:#1e40af;margin-bottom:4px;">
+              <i class="fas fa-info-circle"></i> <span id="rExistingNoticeText"></span>
             </div>
           <div class="form-row">
             <div class="form-group"><label>Pupil's Full Name</label><input type="text" class="form-input" id="rStudentName" placeholder="e.g. Kofi Mensah"/></div>
@@ -785,8 +789,11 @@
               <button type="button" class="btn-ghost" id="clearAllSubjectsBtn" style="font-size:11px;padding:4px 10px;"><i class="fas fa-eraser"></i> Clear All</button>
             </div>
           </div>
-          <!-- Subject Adder -->
-          <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;">
+          <!-- Dynamic subjects list — grows ABOVE the picker -->
+          <p id="subjectsEmptyHint" style="font-size:12px;color:var(--text-muted);text-align:center;padding:8px 0;"><i class="fas fa-info-circle"></i> Select a subject below and click Add.</p>
+          <div id="subjectsGrid"></div>
+          <!-- Subject Adder — stays pinned at bottom of the list -->
+          <div style="display:flex;gap:8px;margin-top:10px;align-items:center;border-top:1px dashed var(--border);padding-top:10px;">
             <select class="form-input" id="subjectPicker" style="flex:1;">
               <option value="">── Select a Subject to Add ──</option>
               <option>English Language</option>
@@ -810,9 +817,6 @@
             </select>
             <button type="button" class="btn-primary" id="addSubjectBtn" style="white-space:nowrap;"><i class="fas fa-plus"></i> Add</button>
           </div>
-          <!-- Dynamic subjects list -->
-          <div id="subjectsGrid"></div>
-          <p id="subjectsEmptyHint" style="font-size:12px;color:var(--text-muted);text-align:center;padding:14px 0;display:none;"><i class="fas fa-info-circle"></i> Use the dropdown above to add subjects one by one.</p>
 
           <div class="form-group" style="margin-top:16px;">
             <label>Class Teacher's Remark</label>
@@ -851,7 +855,22 @@
         </div>
 
         <div class="card full-width">
-          <div class="card-head"><h2 class="card-title"><i class="fas fa-folder-open"></i> Saved Report Cards</h2></div>
+          <div class="card-head" style="flex-wrap:wrap;gap:8px;">
+            <h2 class="card-title"><i class="fas fa-folder-open"></i> Saved Report Cards</h2>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-left:auto;">
+              <input type="text" class="table-search" id="reportSearchInput" placeholder="Search pupil..." style="max-width:160px;" oninput="renderSavedReports()"/>
+              <select class="table-filter" id="reportTermFilter" onchange="renderSavedReports()" style="max-width:150px;">
+                <option value="">All Terms</option>
+                <option>First Term</option><option>Second Term</option><option>Third Term</option>
+              </select>
+              <select class="table-filter" id="reportClassFilter" onchange="renderSavedReports()" style="max-width:130px;">
+                <option value="">All Classes</option>
+              </select>
+              <input type="date" class="form-input" id="reportDateFrom" onchange="renderSavedReports()" style="max-width:145px;" title="From date"/>
+              <input type="date" class="form-input" id="reportDateTo" onchange="renderSavedReports()" style="max-width:145px;" title="To date"/>
+              <button class="btn-ghost" onclick="printTranscript()" style="white-space:nowrap;"><i class="fas fa-graduation-cap" style="color:var(--blue);"></i> Print Transcript</button>
+            </div>
+          </div>
           <div class="saved-reports" id="savedReportsList"><p class="empty-state"><i class="fas fa-file-circle-plus"></i> No reports yet.</p></div>
         </div>
       </div>
@@ -863,7 +882,10 @@
         <div><h1 class="section-title">School Fees</h1><p class="section-sub">Track payments in Ghana Cedis (GH₵)</p></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn-ghost" onclick="downloadFeesCSV()"><i class="fas fa-download"></i> Download CSV</button>
-          <button class="btn-ghost" id="bulkFeeBtn"><i class="fas fa-layer-group"></i> Set Class Fee</button>
+          <button class="btn-ghost" id="feeStructureBtn" style="border-color:var(--blue);color:var(--blue);"><i class="fas fa-table"></i> Fee Structure</button>
+          <button class="btn-ghost" id="bulkFeeBtn"><i class="fas fa-layer-group"></i> Quick Set Fee</button>
+          <button class="btn-ghost" onclick="showArrearsReport()"><i class="fas fa-exclamation-triangle" style="color:var(--red);"></i> Arrears</button>
+          <button class="btn-ghost" onclick="showPaymentStatement()"><i class="fas fa-file-alt" style="color:var(--blue);"></i> Statement</button>
           <button class="btn-ghost" id="generateBillBtn"><i class="fas fa-file-invoice"></i> Generate Bill</button>
           <button class="btn-primary" id="recordFeeBtn"><i class="fas fa-plus"></i> Record Payment</button>
         </div>
@@ -882,6 +904,83 @@
         <div class="table-wrap">
           <table class="data-table"><thead><tr><th>#</th><th>Pupil</th><th>Class</th><th>Amount Due</th><th>Amount Paid</th><th>Balance</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody id="feesTbody"></tbody></table>
+        </div>
+      </div>
+
+      <!-- Print Report Modal -->
+      <div class="modal-overlay" id="printReportModal" style="z-index:10003;">
+        <div class="modal" style="max-width:480px;">
+          <div class="modal-head">
+            <h3><i class="fas fa-print" style="color:var(--blue);"></i> Print Report — <span id="printReportPupilName" style="color:var(--blue);"></span></h3>
+            <button class="modal-close" onclick="document.getElementById('printReportModal').classList.remove('open')"><i class="fas fa-times"></i></button>
+          </div>
+          <div class="modal-body">
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">Select the term(s) you want to include in the printed transcript:</p>
+            <div id="printReportTermOptions"></div>
+            <div style="margin-top:14px;display:flex;gap:8px;">
+              <button class="btn-ghost" style="flex:1;" onclick="document.querySelectorAll('.prm-check').forEach(c=>c.checked=true)"><i class="fas fa-check-double"></i> Select All</button>
+              <button class="btn-ghost" style="flex:1;" onclick="document.querySelectorAll('.prm-check').forEach(c=>c.checked=false)"><i class="fas fa-square"></i> Clear All</button>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn-ghost" onclick="document.getElementById('printReportModal').classList.remove('open')">Cancel</button>
+            <button class="btn-primary" onclick="executePrintReportModal()"><i class="fas fa-print"></i> Print / Download</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Arrears Report Modal -->
+      <div class="modal-overlay" id="arrearsModal" style="z-index:10002;">
+        <div class="modal" style="max-width:740px;">
+          <div class="modal-head">
+            <h3><i class="fas fa-exclamation-triangle" style="color:var(--red);"></i> Fee Arrears Report</h3>
+            <button class="modal-close" onclick="document.getElementById('arrearsModal').classList.remove('open')"><i class="fas fa-times"></i></button>
+          </div>
+          <div class="modal-body">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center;">
+              <select class="form-input" id="arrearsClassFilter" style="max-width:160px;" onchange="renderArrearsTable()">
+                <option value="">All Classes</option>
+              </select>
+              <select class="form-input" id="arrearsSortFilter" style="max-width:180px;" onchange="renderArrearsTable()">
+                <option value="balance">Sort by Balance (High)</option>
+                <option value="name">Sort by Name</option>
+              </select>
+              <button class="btn-primary" onclick="printArrearsReport()" style="margin-left:auto;"><i class="fas fa-print"></i> Print / Download</button>
+            </div>
+            <div id="arrearsTableWrap"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Payment Statement Modal -->
+      <div class="modal-overlay" id="paymentStatementModal" style="z-index:10002;">
+        <div class="modal" style="max-width:740px;">
+          <div class="modal-head">
+            <h3><i class="fas fa-file-alt" style="color:var(--blue);"></i> Payment History / Statement</h3>
+            <button class="modal-close" onclick="document.getElementById('paymentStatementModal').classList.remove('open')"><i class="fas fa-times"></i></button>
+          </div>
+          <div class="modal-body">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:flex-end;">
+              <div class="form-group" style="margin:0;min-width:160px;">
+                <label style="font-size:12px;">Pupil (leave blank for all)</label>
+                <select class="form-input" id="statementPupilFilter"><option value="">All Pupils</option></select>
+              </div>
+              <div class="form-group" style="margin:0;min-width:130px;">
+                <label style="font-size:12px;">Class</label>
+                <select class="form-input" id="statementClassFilter" onchange="populateStatementPupils()"><option value="">All Classes</option></select>
+              </div>
+              <div class="form-group" style="margin:0;min-width:130px;">
+                <label style="font-size:12px;">Term</label>
+                <select class="form-input" id="statementTermFilter">
+                  <option value="">All Terms</option>
+                  <option>First Term</option><option>Second Term</option><option>Third Term</option>
+                </select>
+              </div>
+              <button class="btn-primary" onclick="renderPaymentStatement()"><i class="fas fa-search"></i> Generate</button>
+              <button class="btn-ghost" onclick="printPaymentStatement()"><i class="fas fa-print"></i> Print</button>
+            </div>
+            <div id="paymentStatementWrap"></div>
+          </div>
         </div>
       </div>
 
@@ -933,8 +1032,9 @@
       </div>
 
       <!-- Record Fee Payment Modal -->
+      <!-- New Fee Modal: per-term records with payment log + arrears -->
       <div class="modal-overlay" id="feeModal">
-        <div class="modal">
+        <div class="modal" style="max-width:600px;">
           <div class="modal-head"><h3 id="feeModalTitle">Record Fee Payment</h3><button class="modal-close" id="closeFeeModal"><i class="fas fa-times"></i></button></div>
           <div class="modal-body">
             <input type="hidden" id="fEditId"/>
@@ -945,33 +1045,62 @@
               </select>
             </div>
             <div class="form-row" id="feeAutoFilledInfo" style="display:none;">
-              <div class="form-group">
-                <label>Pupil Name</label>
-                <input type="text" class="form-input" id="fStudentName" readonly style="background:var(--bg-light);color:var(--text-muted);cursor:not-allowed;"/>
-              </div>
-              <div class="form-group">
-                <label>Class</label>
-                <input type="text" class="form-input" id="fClass" readonly style="background:var(--bg-light);color:var(--text-muted);cursor:not-allowed;"/>
-              </div>
+              <div class="form-group"><label>Pupil Name</label><input type="text" class="form-input" id="fStudentName" readonly style="background:var(--bg-light);color:var(--text-muted);cursor:not-allowed;"/></div>
+              <div class="form-group"><label>Class</label><input type="text" class="form-input" id="fClass" readonly style="background:var(--bg-light);color:var(--text-muted);cursor:not-allowed;"/></div>
             </div>
             <div class="form-row">
-              <div class="form-group"><label>Total Fee Due (GH₵) <span style="color:var(--red)">*</span></label><input type="number" class="form-input" id="fDue" placeholder="e.g. 300" min="0"/></div>
-              <div class="form-group"><label>Amount Paid (GH₵)</label><input type="number" class="form-input" id="fPaid" placeholder="e.g. 200" min="0"/></div>
+              <div class="form-group">
+                <label>Term <span style="color:var(--red)">*</span></label>
+                <select class="form-input" id="fTerm">
+                  <option>First Term</option><option>Second Term</option><option>Third Term</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Term Fee Due (GH₵)</label>
+                <input type="number" class="form-input" id="fDue" placeholder="Set in Fee Structure" min="0" readonly
+                  style="background:var(--bg-light);color:var(--text-muted);cursor:not-allowed;"
+                  title="Fee amount is set in Fee Structure — cannot be changed here"/>
+                <div id="fDueStructureNotice" style="display:none;font-size:11px;color:var(--blue);margin-top:3px;">
+                  <i class="fas fa-lock" style="font-size:9px;"></i> From Fee Structure
+                </div>
+              </div>
             </div>
-            <div class="form-group">
-              <label>Term</label>
-              <select class="form-input" id="fTerm">
-                <option>First Term</option><option>Second Term</option><option>Third Term</option>
-              </select>
+            <!-- Arrears indicator -->
+            <div id="fArrearsRow" style="display:none;background:#fff7e0;border:1px solid #f0c000;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:13px;color:#7a5900;">
+              <i class="fas fa-exclamation-triangle"></i> Arrears from previous term(s): <strong id="fArrearsAmt">GH₵0.00</strong>
+              <br/><span style="font-size:11px;">This will be added to the total due for this term.</span>
             </div>
-            <div id="feeExistingWarning" style="display:none;padding:10px 14px;background:#fff7e0;border:1px solid #f0c000;border-radius:var(--radius-sm);font-size:13px;color:#7a5900;margin-top:4px;">
-              <i class="fas fa-exclamation-triangle"></i> This pupil already has a fee record. You are editing the existing one.
+            <!-- Payment log section -->
+            <div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:4px;">
+              <div style="font-weight:700;font-size:13px;margin-bottom:8px;"><i class="fas fa-list-ul" style="color:var(--blue);"></i> Payment Log</div>
+              <div id="fPaymentLog" style="max-height:160px;overflow-y:auto;margin-bottom:8px;"></div>
+              <!-- Add new payment -->
+              <div style="display:flex;gap:8px;align-items:flex-end;border-top:1px dashed var(--border);padding-top:10px;">
+                <div class="form-group" style="margin:0;flex:1;">
+                  <label style="font-size:11px;">Amount (GH₵)</label>
+                  <input type="number" class="form-input" id="fNewPayAmt" placeholder="e.g. 200" min="0"/>
+                </div>
+                <div class="form-group" style="margin:0;flex:1;">
+                  <label style="font-size:11px;">Date</label>
+                  <input type="date" class="form-input" id="fNewPayDate"/>
+                </div>
+                <div class="form-group" style="margin:0;flex:1;">
+                  <label style="font-size:11px;">Note (optional)</label>
+                  <input type="text" class="form-input" id="fNewPayNote" placeholder="e.g. Cash"/>
+                </div>
+                <button type="button" class="btn-primary" onclick="addPaymentEntry()" style="white-space:nowrap;padding:8px 14px;"><i class="fas fa-plus"></i> Add</button>
+              </div>
+            </div>
+            <!-- Summary -->
+            <div id="fPaySummary" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-top:8px;font-size:13px;"></div>
+            <div id="feeExistingWarning" style="display:none;padding:10px 14px;background:#fff7e0;border:1px solid #f0c000;border-radius:var(--radius-sm);font-size:13px;color:#7a5900;margin-top:8px;">
+              <i class="fas fa-exclamation-triangle"></i> A record already exists for this pupil this term. You are editing it.
             </div>
           </div>
           <div class="modal-foot">
             <button class="btn-ghost" id="cancelFeeModal">Cancel</button>
             <button class="btn-ghost" id="printReceiptBtn" style="display:none;"><i class="fas fa-receipt"></i> Print Receipt</button>
-            <button class="btn-primary" id="saveFeeBtn"><i class="fas fa-save"></i> Save</button>
+            <button class="btn-primary" id="saveFeeBtn"><i class="fas fa-save"></i> Save Record</button>
           </div>
         </div>
       </div>
@@ -980,7 +1109,7 @@
         <div class="modal" style="max-width:440px;">
           <div class="modal-head"><h3><i class="fas fa-layer-group"></i> Set Class Fee</h3><button class="modal-close" onclick="document.getElementById('bulkFeeModal').classList.remove('open')"><i class="fas fa-times"></i></button></div>
           <div class="modal-body">
-            <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">Set a single fee amount for all pupils in a class at once. Existing records will be updated; new pupils get a record created automatically.</p>
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">Quickly set the expected fee for a class and term. This writes to the Fee Structure table — it does <strong>not</strong> overwrite any payments.</p>
             <div class="form-group"><label>Class <span style="color:var(--red)">*</span></label>
               <select class="form-input" id="bulkFeeClass">
                 <option value="">-- Select Class --</option>
@@ -1001,6 +1130,27 @@
           <div class="modal-foot">
             <button class="btn-ghost" onclick="document.getElementById('bulkFeeModal').classList.remove('open')">Cancel</button>
             <button class="btn-primary" onclick="applyBulkFee()"><i class="fas fa-check"></i> Apply to All Pupils</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Fee Structure Modal -->
+      <div class="modal-overlay" id="feeStructureModal" style="z-index:10004;">
+        <div class="modal" style="max-width:820px;">
+          <div class="modal-head">
+            <h3><i class="fas fa-table" style="color:var(--blue);"></i> Fee Structure — <span style="color:var(--blue);" id="feeStructYearLabel"></span></h3>
+            <button class="modal-close" onclick="document.getElementById('feeStructureModal').classList.remove('open')"><i class="fas fa-times"></i></button>
+          </div>
+          <div class="modal-body">
+            <div style="background:var(--blue-light);border:1px solid var(--blue);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--blue);">
+              <i class="fas fa-info-circle"></i>
+              <strong>Set the expected fee for each class and term.</strong>
+              Changes save automatically. These amounts are used for all balance calculations — teachers cannot change them when recording payments.
+            </div>
+            <div id="feeStructureWrap"></div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn-ghost" onclick="document.getElementById('feeStructureModal').classList.remove('open')">Close</button>
           </div>
         </div>
       </div>
@@ -1152,6 +1302,18 @@
           <div class="modal-head"><h3 id="teacherModalTitle">Add Teacher</h3><button class="modal-close" id="closeTeacherModal"><i class="fas fa-times"></i></button></div>
           <div class="modal-body">
             <input type="hidden" id="tEditId"/>
+            <!-- Teacher Photo -->
+            <div class="form-group" style="text-align:center;margin-bottom:10px;">
+              <div style="position:relative;display:inline-block;">
+                <div id="tPhotoCircle" style="width:72px;height:72px;border-radius:50%;background:var(--blue-light);display:flex;align-items:center;justify-content:center;font-size:28px;color:var(--blue);overflow:hidden;margin:0 auto 6px;border:2px dashed var(--border);cursor:pointer;" onclick="document.getElementById('tPhotoInput').click()">
+                  <span id="tPhotoInitials" style="font-weight:700;font-size:22px;">?</span>
+                  <img id="tPhotoPreview" style="display:none;width:100%;height:100%;object-fit:cover;"/>
+                </div>
+                <label style="font-size:11px;color:var(--blue);cursor:pointer;" onclick="document.getElementById('tPhotoInput').click()"><i class="fas fa-camera"></i> Add Photo</label>
+                <input type="file" id="tPhotoInput" accept="image/*" style="display:none;"/>
+                <button type="button" id="tPhotoClear" onclick="clearTeacherPhoto()" style="display:none;position:absolute;top:-4px;right:-4px;background:var(--red);color:#fff;border:none;border-radius:50%;width:20px;height:20px;font-size:10px;cursor:pointer;"><i class="fas fa-times"></i></button>
+              </div>
+            </div>
             <div class="form-row">
               <div class="form-group"><label>First Name</label><input type="text" class="form-input" id="tFirst" placeholder="e.g. Abena"/></div>
               <div class="form-group"><label>Last Name</label><input type="text" class="form-input" id="tLast" placeholder="e.g. Asante"/></div>
@@ -2340,7 +2502,7 @@
 
   <div class="toast" id="toast"></div>
   <!-- Firebase SDK -->
-  <script type="module">
+  <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script type="module">
     import { initializeApp }                          from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import { getDatabase, ref, set, get, onValue, off, child, update }
                                                       from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
@@ -2365,14 +2527,11 @@
       set:    (path, val)         => set(ref(db, path), val),
       get:    (path)              => get(ref(db, path)),
       update: (path, val)         => update(ref(db, path), val),
-      onValue,
-      off,
-      child,
+      onValue: (ref, cb, err) => onValue(ref, cb, err),
+      off:    (ref)           => off(ref),
     };
     window._fbReady = true;
-    document.dispatchEvent(new Event('firebase-ready'));
-    console.log('[Firebase] SDK loaded ✅');
   </script>
-  <script src="script.js"></script>
+  <script src="script.js" defer></script>
 </body>
 </html>
