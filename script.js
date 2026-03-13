@@ -850,6 +850,7 @@ function saveToDB() {
       window._fb.set(fbSchoolPath(schoolId), data)
         .then(() => {
           showSyncStatus('online');
+          markSaved(); // Only mark as saved once Firebase confirms
           // FIX BUG 3: Extended from 2000ms to 5000ms — on slow connections the
           // Firebase echo arrived after 2s, triggering an overwrite of fresh data.
           setTimeout(() => { _fbPauseIncoming = false; }, 5000);
@@ -969,7 +970,10 @@ function autosave() {
   clearTimeout(_saveTimer);
   _saveTimer = setTimeout(() => {
     saveToDB();
-    markSaved();
+    // markSaved() is called inside saveToDB's Firebase .then() callback
+    // so the "All saved" indicator only shows after cloud confirmation.
+    // For offline mode we still mark saved immediately since there's no cloud to wait for.
+    if (!window._fbReady || !_isOnline) markSaved();
   }, 1200);
 }
 
@@ -6963,8 +6967,8 @@ function attemptLogin() {
     document.querySelector('.user-role').textContent   = user.role;
     document.querySelector('.user-avatar').textContent = user.name.charAt(0).toUpperCase();
     document.getElementById('sidebarSchoolName').textContent = state.settings.schoolName;
-    // Suppress outgoing Firebase push during startup render
-    _fbPauseOutgoing = true;
+    // Suppress renders from triggering autosave during startup — we do a single
+    // controlled saveToDB after Firebase data is loaded if needed.
     renderStudents(); renderFees(); renderTeachers(); renderClasses();
     renderGallery(); renderSavedReports(); renderWeekly();
     renderAttendance(); renderUsers(); updateDashStats(); updateFeeStats();
@@ -6986,8 +6990,9 @@ function attemptLogin() {
     resetBtn();
     // Start realtime sync AFTER data is loaded and rendered — not before
     startRealtimeSync(schoolId);
-    // Release outgoing push block after 3s startup window
-    setTimeout(() => { _fbPauseOutgoing = false; }, 3000);
+    // _fbPauseOutgoing is already cleared by loadSchoolDataFromFirebase.
+    // The savedAt > _fbKnownSavedAt guard in saveToDB() is the correct
+    // protection against premature pushes — no startup timeout needed.
     showToast('Welcome back, ' + user.name + ' - ' + state.settings.schoolName);
   };
   loadSchoolData(schoolKey);
