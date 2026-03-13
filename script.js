@@ -175,29 +175,34 @@ async function loadSchoolDataFromFirebase(schoolId) {
     // Firebase is newer or equal — use Firebase as source of truth
     localStorage.setItem(getSchoolKey(schoolId), JSON.stringify(fbData));
     loadSchoolData(getSchoolKey(schoolId));
-    // Set _fbKnownSavedAt to NOW so any immediate saveToDB (triggered by renders/blur)
-    // won't have a strictly newer timestamp and won't overwrite Firebase unnecessarily.
-    // The user must actually do something (autosave has 1200ms delay) to get a newer stamp.
-    _fbKnownSavedAt = Date.now();
+    // FIX BUG 1: Use the real Firebase savedAt timestamp, not Date.now().
+    // Using Date.now() caused a race: saves made within the same ms as login
+    // would fail the (savedAt > _fbKnownSavedAt) guard in saveToDB() and never
+    // reach Firebase, so data appeared locally then vanished on next sync.
+    _fbKnownSavedAt = fbSavedAt;
     _fbDataLoaded = true;
+    // FIX BUG 2: Ensure _fbPauseOutgoing is cleared after a successful load
+    // so that saves are never silently blocked for the rest of the session.
+    _fbPauseOutgoing = false;
     return fbData;
   } else {
     // Local is genuinely newer — load it and allow push on next real user action
     loadSchoolData(getSchoolKey(schoolId));
-    _fbKnownSavedAt = Date.now();
+    _fbKnownSavedAt = localSavedAt; // use local timestamp — it's the newer source
     _fbDataLoaded = true;
+    _fbPauseOutgoing = false; // FIX BUG 2: always clear the outgoing pause after load
     return fbData;
   }
 }
 
 function _applyDataToState(data) {
   const merge = (key, def) => { if (data[key] !== undefined) state[key] = data[key]; else if (state[key]===undefined) state[key]=def; };
-  merge('students',[]); merge('fees',[]); merge('feeStructure',[]); merge('teachers',[]); merge('classes',[]);
+  merge('students',[]); merge('fees',[]); merge('feeStructure',[]); merge('classBills',[]); merge('payments',[]); merge('teachers',[]); merge('classes',[]);
   merge('albums',[]); merge('reports',[]); merge('weeklyRecords',[]); merge('attendance',[]);
   merge('settings',{}); merge('users',[]); merge('admissions',[]); merge('expenditures',[]);
   merge('resources',[]); merge('exams',[]); merge('transfers',[]); merge('announcements',[]);
   merge('parentNotifications',[]); merge('backupHistory',[]);
-  merge('nextStudentId',1); merge('nextFeeId',1); merge('nextReceiptId',1); merge('nextTeacherId',1);
+  merge('nextStudentId',1); merge('nextStudentUID',1); merge('nextFeeId',1); merge('nextReceiptId',1); merge('nextTeacherId',1);
   merge('nextClassId',1); merge('nextUserId',1); merge('nextResourceId',1);
   merge('nextExamId',1); merge('nextAlbumId',1); merge('nextAttendanceId',1);
   merge('nextWeeklyId',1); merge('nextTransferId',1); merge('nextAnnouncementId',1);
@@ -228,7 +233,7 @@ async function submitSchoolRegistration(name, adminName, adminUser, adminPass, p
   const schoolKey = getSchoolKey(schoolId);
 
   const freshData = {
-    students:[], fees:[], feeStructure:[], teachers:[], classes:[
+    students:[], fees:[], feeStructure:[], classBills:[], payments:[], teachers:[], classes:[
       {id:1,name:'KG1',level:'Kindergarten',teacher:''},{id:2,name:'KG2',level:'Kindergarten',teacher:''},
       {id:3,name:'P1',level:'Primary',teacher:''},{id:4,name:'P2',level:'Primary',teacher:''},
       {id:5,name:'P3',level:'Primary',teacher:''},{id:6,name:'P4',level:'Primary',teacher:''},
@@ -592,6 +597,73 @@ async function renderAllSchoolCredentials() {
 }
 
 // ── RECOVERY REQUESTS ──
+function switchRecoveryTab(tab) {
+  document.getElementById('recTabPane1').style.display = tab===1 ? '' : 'none';
+  document.getElementById('recTabPane2').style.display = tab===2 ? '' : 'none';
+  document.getElementById('recModalFoot1').style.display = tab===1 ? '' : 'none';
+  document.getElementById('recModalFoot2').style.display = tab===2 ? '' : 'none';
+  document.getElementById('recTab1').style.background    = tab===1 ? 'var(--blue)' : 'transparent';
+  document.getElementById('recTab1').style.color         = tab===1 ? '#fff' : 'var(--text-muted)';
+  document.getElementById('recTab2').style.background    = tab===2 ? 'var(--blue)' : 'transparent';
+  document.getElementById('recTab2').style.color         = tab===2 ? '#fff' : 'var(--text-muted)';
+}
+
+function doEmergencyReveal() {
+  const code    = document.getElementById('recSuperCode').value.trim();
+  const errEl   = document.getElementById('recLocalError');
+  const resEl   = document.getElementById('recRevealResult');
+  errEl.style.display = 'none';
+  resEl.style.display = 'none';
+
+  if (code !== SUPER_ADMIN_CODE) {
+    errEl.textContent   = 'Incorrect Super Admin Code.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  // Get current school from login screen
+  const schoolId  = document.getElementById('loginScreen').dataset.schoolId;
+  const schoolKey = getSchoolKey(schoolId);
+
+  // Try both localStorage and current state
+  let users = [];
+  try {
+    const localRaw = localStorage.getItem(schoolKey);
+    if (localRaw) {
+      const localData = JSON.parse(localRaw);
+      if (localData.users && localData.users.length) users = localData.users;
+    }
+  } catch(e) {}
+  if (!users.length && state.users && state.users.length) users = state.users;
+
+  if (!users.length) {
+    errEl.textContent   = 'No user accounts found for this school. Try re-registering.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  const rows = users.map(u =>
+    '<tr style="border-bottom:1px solid var(--border);">'
+    + '<td style="padding:7px 10px;font-weight:700;">' + escHtml(u.username||'—') + '</td>'
+    + '<td style="padding:7px 10px;font-family:monospace;">' + escHtml(u.password||'—') + '</td>'
+    + '<td style="padding:7px 10px;">' + escHtml(u.role||'—') + '</td>'
+    + '<td style="padding:7px 10px;font-size:11px;color:var(--text-muted);">' + escHtml(u.name||'—') + '</td>'
+    + '</tr>'
+  ).join('');
+
+  resEl.innerHTML = '<div style="font-weight:700;color:var(--green);margin-bottom:8px;"><i class="fas fa-check-circle"></i> Credentials found — copy these now</div>'
+    + '<table style="width:100%;border-collapse:collapse;font-size:13px;">'
+    + '<thead><tr style="background:var(--bg);">'
+    +   '<th style="padding:6px 10px;text-align:left;font-size:11px;color:var(--text-muted);">USERNAME</th>'
+    +   '<th style="padding:6px 10px;text-align:left;font-size:11px;color:var(--text-muted);">PASSWORD</th>'
+    +   '<th style="padding:6px 10px;text-align:left;font-size:11px;color:var(--text-muted);">ROLE</th>'
+    +   '<th style="padding:6px 10px;text-align:left;font-size:11px;color:var(--text-muted);">NAME</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table>'
+    + '<div style="margin-top:10px;font-size:11px;color:var(--text-muted);"><i class="fas fa-shield-alt"></i> This information is only visible with the Super Admin Code. Keep it private.</div>';
+  resEl.style.display = 'block';
+  document.getElementById('recSuperCode').value = '';
+}
+
 async function submitRecoveryRequest() {
   const schoolName = document.getElementById('recSchoolName').value.trim();
   const adminName  = document.getElementById('recAdminName').value.trim();
@@ -718,10 +790,13 @@ function saveToDB() {
       students: state.students,
       fees: state.fees,
       feeStructure: state.feeStructure||[],
+      classBills: state.classBills||[],
+      payments: state.payments||[],
       teachers: state.teachers,
       classes: state.classes,
       albums: state.albums.map(a=>({...a, photos:(a.photos||[]).map(p=>({name:p.name,src:p.src&&p.src.length>500000?'[photo-omitted]':p.src}))})),
       reports: state.reports,
+      _reportsDict: state._reportsDict||{},
       weeklyRecords: state.weeklyRecords,
       attendance: state.attendance,
       settings: state.settings,
@@ -732,6 +807,7 @@ function saveToDB() {
       admissions: state.admissions,
       nextAdmissionId: state.nextAdmissionId,
       nextStudentId: state.nextStudentId,
+      nextStudentUID: state.nextStudentUID || 1,
       nextFeeId: state.nextFeeId,
       nextReceiptId: state.nextReceiptId||1,
       nextTeacherId: state.nextTeacherId,
@@ -774,7 +850,9 @@ function saveToDB() {
       window._fb.set(fbSchoolPath(schoolId), data)
         .then(() => {
           showSyncStatus('online');
-          setTimeout(() => { _fbPauseIncoming = false; }, 2000);
+          // FIX BUG 3: Extended from 2000ms to 5000ms — on slow connections the
+          // Firebase echo arrived after 2s, triggering an overwrite of fresh data.
+          setTimeout(() => { _fbPauseIncoming = false; }, 5000);
         })
         .catch(e => {
           console.warn('[FB] Save to Firebase failed:', e);
@@ -803,7 +881,7 @@ function loadSchoolData(schoolKey) {
     if (data.teachers)      state.teachers      = data.teachers;
     if (data.classes)       state.classes       = data.classes;
     if (data.albums)        state.albums        = data.albums;
-    if (data.reports)       state.reports       = data.reports;
+    _loadReports(data);
     if (data.weeklyRecords) state.weeklyRecords = data.weeklyRecords;
     if (data.attendance)    state.attendance    = data.attendance;
     if (data.settings)      Object.assign(state.settings, data.settings);
@@ -828,9 +906,12 @@ function loadSchoolData(schoolKey) {
     if (data.admissions)  state.admissions  = data.admissions;
     if (data.nextAdmissionId) state.nextAdmissionId = data.nextAdmissionId;
     if (data.nextStudentId)    state.nextStudentId    = data.nextStudentId;
+    if (data.nextStudentUID)   state.nextStudentUID   = data.nextStudentUID;
     if (data.nextFeeId)        state.nextFeeId        = data.nextFeeId;
     if (data.nextReceiptId)   state.nextReceiptId   = data.nextReceiptId;
     if (data.feeStructure)     state.feeStructure     = data.feeStructure;
+    if (data.classBills)       state.classBills       = data.classBills;
+    if (data.payments)         state.payments         = data.payments;
     if (data.nextTeacherId)    state.nextTeacherId    = data.nextTeacherId;
     if (data.nextClassId)      state.nextClassId      = data.nextClassId;
     if (data.nextAlbumId)      state.nextAlbumId      = data.nextAlbumId;
@@ -838,6 +919,8 @@ function loadSchoolData(schoolKey) {
     if (data.nextAttendanceId) state.nextAttendanceId = data.nextAttendanceId;
     if (data.nextUserId)       state.nextUserId       = data.nextUserId;
     if (data.nextExpenditureId) state.nextExpenditureId = data.nextExpenditureId;
+    // Migrate legacy f.payments[] into global state.payments[] ledger (runs once)
+    migratePaymentsToGlobalLedger();
     return true;
   } catch(e) { console.warn('Load failed:', e); return false; }
 }
@@ -947,12 +1030,12 @@ function initPageLeaveProtection() {
 // ── STATE ──
 const state = {
   students: [
-    { id:1, first:'Kofi', last:'Mensah', cls:'BS.5', gender:'Male', feeStatus:'Paid', phone:'0244123456', photo:null },
-    { id:2, first:'Ama', last:'Owusu', cls:'BS.4', gender:'Female', feeStatus:'Partial', phone:'0201234567', photo:null },
-    { id:3, first:'Kwame', last:'Asante', cls:'BS.7', gender:'Male', feeStatus:'Unpaid', phone:'0552345678', photo:null },
-    { id:4, first:'Abena', last:'Boateng', cls:'BS.3', gender:'Female', feeStatus:'Paid', phone:'0271234567', photo:null },
-    { id:5, first:'Yaw', last:'Darko', cls:'BS.7', gender:'Male', feeStatus:'Paid', phone:'0241234567', photo:null },
-    { id:6, first:'Akua', last:'Frimpong', cls:'BS.5', gender:'Female', feeStatus:'Partial', phone:'0231234567', photo:null },
+    { id:1, uid:'STU-00001', first:'Kofi', last:'Mensah', cls:'BS.5', gender:'Male', feeStatus:'Paid', phone:'0244123456', photo:null, status:'active' },
+    { id:2, uid:'STU-00002', first:'Ama', last:'Owusu', cls:'BS.4', gender:'Female', feeStatus:'Partial', phone:'0201234567', photo:null, status:'active' },
+    { id:3, uid:'STU-00003', first:'Kwame', last:'Asante', cls:'BS.7', gender:'Male', feeStatus:'Unpaid', phone:'0552345678', photo:null, status:'active' },
+    { id:4, uid:'STU-00004', first:'Abena', last:'Boateng', cls:'BS.3', gender:'Female', feeStatus:'Paid', phone:'0271234567', photo:null, status:'active' },
+    { id:5, uid:'STU-00005', first:'Yaw', last:'Darko', cls:'BS.7', gender:'Male', feeStatus:'Paid', phone:'0241234567', photo:null, status:'active' },
+    { id:6, uid:'STU-00006', first:'Akua', last:'Frimpong', cls:'BS.5', gender:'Female', feeStatus:'Partial', phone:'0231234567', photo:null, status:'active' },
   ],
   fees: [
     { id:1, student:'Kofi Mensah', cls:'BS.5', due:300, paid:300 },
@@ -990,6 +1073,7 @@ const state = {
     { id:4, name:'Cultural Day', desc:'Celebrating Ghanaian heritage', emoji:'🎭', photos:[] },
   ],
   reports: [],
+  _reportsDict: {},   // nested storage: [studentId][year][term] = reportData
   weeklyRecords: [],
   attendance: [],
   users: [
@@ -1012,6 +1096,7 @@ const state = {
   driveUser: null,
   backupHistory: [],
   nextStudentId: 7,
+  nextStudentUID: 7, // counter for permanent STU-XXXXX IDs
   nextExpenditureId: 1, nextFeeId: 7, nextTeacherId: 5, nextClassId: 14, nextAlbumId: 5, nextWeeklyId: 1, nextAttendanceId: 1, nextUserId: 3,
   admissions: [],
   nextAdmissionId: 1,
@@ -1051,6 +1136,56 @@ function gesGradeFromScore(s) {
   if (s >= 40) return { grade:'7', remark:'Pass' };
   if (s >= 35) return { grade:'8', remark:'Pass' };
   return { grade:'9', remark:'Fail' };
+}
+
+// ════════════════════════════════════════
+// PERMANENT STUDENT ID SYSTEM
+// Format: STU-00001 … STU-99999
+// Once assigned this ID never changes,
+// even if name / class / phone changes.
+// ════════════════════════════════════════
+
+/** Generate the next permanent Student ID string */
+function generateStudentUID() {
+  if (!state.nextStudentUID) state.nextStudentUID = 1;
+  const uid = 'STU-' + String(state.nextStudentUID).padStart(5, '0');
+  state.nextStudentUID++;
+  return uid;
+}
+
+/** Back-fill STU- IDs for any existing students who don't have one yet */
+function backfillStudentUIDs() {
+  if (!state.nextStudentUID) state.nextStudentUID = 1;
+  let changed = false;
+  (state.students || []).forEach(s => {
+    if (!s.uid) {
+      s.uid = generateStudentUID();
+      changed = true;
+    }
+  });
+  if (changed) autosave();
+}
+
+// ════════════════════════════════════════
+// AUDIT TRAIL HELPERS
+// Stamps who created/updated a record and when.
+// ════════════════════════════════════════
+
+function auditCreate() {
+  return {
+    createdBy:  state.currentUser?.name || 'System',
+    createdAt:  new Date().toISOString(),
+    updatedBy:  null,
+    updatedAt:  null,
+  };
+}
+
+function auditUpdate(record) {
+  return {
+    ...record,
+    updatedBy: state.currentUser?.name || 'System',
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 function showToast(msg, dur=3200) {
@@ -1255,17 +1390,26 @@ function checkAndLoadExistingReport(studentId, studentName) {
 
 /** When a new pupil is saved, auto-create a placeholder fee record */
 function autoCreateFeeRecord(pupil) {
-  // Only create if no fee record exists yet
-  const name = `${pupil.first} ${pupil.last}`;
-  const existing = state.fees.find(f => f.student === name);
+  // Only create if no fee record exists for this student + current term + year
+  const name         = `${pupil.first} ${pupil.last}`;
+  const academicYear = state.settings.session || new Date().getFullYear() + '/' + (new Date().getFullYear() + 1);
+  const term         = state.settings.term || 'First Term';
+  const existing     = state.fees.find(f =>
+    (f.studentId === pupil.id || f.student === name) &&
+    (f.year === academicYear || !f.year)
+  );
   if (!existing) {
     state.fees.push({
-      id: state.nextFeeId++,
-      student: name,
-      cls: pupil.cls,
-      studentId: pupil.id,
-      due: 0,
-      paid: 0
+      id:          state.nextFeeId++,
+      student:     name,
+      cls:         pupil.cls,
+      studentId:   pupil.id,
+      studentUID:  pupil.uid || null,    // permanent ID cross-reference
+      term,
+      year:        academicYear,          // ✅ always stamped with academic year
+      due:         0,
+      paid:        0,
+      ...auditCreate(),
     });
   }
 }
@@ -1624,7 +1768,7 @@ function quickOpenFeeForStudent(studentId) {
 
 function renderStudents(filter='', cls='') {
   const tbody = document.getElementById('studentTbody');
-  let data = state.students;
+  let data = state.students.filter(s => (s.status || 'active') === 'active');
   if (filter) data = data.filter(s=>`${s.first} ${s.last}`.toLowerCase().includes(filter.toLowerCase()));
   if (cls) data = data.filter(s=>s.cls===cls);
   if (!data.length) { tbody.innerHTML=`<tr><td colspan="7" style="text-align:center;color:var(--text-light);padding:28px;">No pupils found.</td></tr>`; return; }
@@ -1637,9 +1781,10 @@ function renderStudents(filter='', cls='') {
     const photoHtml = s.photo
       ? `<img src="${s.photo}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;margin-right:8px;vertical-align:middle;border:2px solid var(--border);"/>`
       : `<span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:var(--blue-light);color:var(--blue);font-size:12px;font-weight:700;margin-right:8px;">${s.first.charAt(0)}</span>`;
+    const uidBadge = s.uid ? `<div style="font-size:10px;color:var(--text-muted);font-family:monospace;margin-top:1px;">${s.uid}</div>` : '';
     return `<tr>
       <td>${i+1}</td>
-      <td><div style="display:flex;align-items:center;">${photoHtml}<strong>${name}</strong></div></td>
+      <td><div style="display:flex;align-items:center;">${photoHtml}<div><strong>${name}</strong>${uidBadge}</div></div></td>
       <td><span class="status-pill" style="background:var(--blue-light);color:var(--blue);font-size:11px;">${s.cls}</span></td>
       <td>${s.gender}</td>
       <td>${s.phone||'—'}</td>
@@ -1647,13 +1792,16 @@ function renderStudents(filter='', cls='') {
       <td>
         <button class="tbl-btn" onclick="editStudent(${s.id})" title="Edit Pupil"><i class="fas fa-edit"></i></button>
         <button class="tbl-btn" onclick="quickOpenFeeForStudent(${s.id})" title="Record Fee Payment" style="color:var(--green);"><i class="fas fa-coins"></i></button>
-        <button class="tbl-btn danger" onclick="deleteStudent(${s.id})" title="Delete"><i class="fas fa-trash"></i></button>
+        <button class="tbl-btn" onclick="promoteStudent(${s.id})" title="Promote to Next Class" style="color:var(--blue);"><i class="fas fa-arrow-up"></i></button>
+        <button class="tbl-btn" onclick="printFullAcademicTranscript(${s.id})" title="Print Full Academic Transcript" style="color:var(--blue);"><i class="fas fa-file-alt"></i></button>
+        <button class="tbl-btn danger" onclick="softDeleteStudent(${s.id})" title="Remove Pupil (keeps history)"><i class="fas fa-user-minus"></i></button>
       </td>
     </tr>`;
   }).join('');
 }
 
 function initStudents() {
+  backfillStudentUIDs(); // ensure all existing students have a permanent STU- ID
   renderStudents();
   document.getElementById('studentSearch').addEventListener('input', function(){ renderStudents(this.value, document.getElementById('classFilter').value); });
   document.getElementById('classFilter').addEventListener('change', function(){ renderStudents(document.getElementById('studentSearch').value, this.value); });
@@ -1666,75 +1814,268 @@ function initStudents() {
   document.getElementById('closeStudentModal').addEventListener('click', ()=>{ document.getElementById('studentModal').classList.remove('open'); });
   document.getElementById('cancelStudentModal').addEventListener('click', ()=>{ document.getElementById('studentModal').classList.remove('open'); });
   document.getElementById('saveStudentBtn').addEventListener('click', saveStudent);
+
+  // Bulk Promote button (end-of-year)
+  const promoteAllBtn = document.getElementById('promoteAllBtn');
+  if (promoteAllBtn) promoteAllBtn.addEventListener('click', bulkPromoteAll);
 }
 
-function saveStudent() {
-  const first = document.getElementById('sFirstName').value.trim();
-  const last = document.getElementById('sLastName').value.trim();
-  const cls = document.getElementById('sClass').value;
-  const gender = document.getElementById('sGender').value;
-  const phone = document.getElementById('sPhone').value.trim();
-  const editId = document.getElementById('sEditId').value;
-  const photoData = document.getElementById('sPhotoPreview').dataset.photo || null;
-  if (!first||!last) { showToast('⚠️ Please enter pupil\'s full name.'); return; }
-  if (editId) {
-    const s = state.students.find(s=>s.id===parseInt(editId));
-    if (s) { s.first=first; s.last=last; s.cls=cls; s.gender=gender; s.phone=phone; if(photoData) s.photo=photoData; }
-    showToast(`✅ ${first} ${last} updated!`);
-  } else {
-    state.students.push({ id:state.nextStudentId++, first, last, cls, gender, phone, feeStatus:'Unpaid', photo:photoData });
-    showToast(`✅ ${first} ${last} enrolled!`);
-    // Auto-create Student/Parent user account
-    const newPupil = state.students[state.students.length - 1];
-    autoCreateStudentUser(newPupil);
+// ════════════════════════════════════════
+// DUPLICATE STUDENT DETECTION
+// Runs before any new enrolment to warn
+// the admin about possible same-person records.
+// ════════════════════════════════════════
+
+function findPotentialDuplicates(first, last, phone) {
+  const fullName  = (first + ' ' + last).toLowerCase();
+  const lastLower = last.toLowerCase();
+  const firstInit = first.trim().toLowerCase()[0];
+  return (state.students || []).filter(s => {
+    if ((s.status || 'active') !== 'active') return false; // skip already-removed pupils
+    const sName = (s.first + ' ' + s.last).toLowerCase();
+    if (sName === fullName) return true;
+    if (s.last.toLowerCase() === lastLower && s.first.trim().toLowerCase()[0] === firstInit) return true;
+    if (phone && phone.length >= 7 && s.phone &&
+        s.phone.replace(/\s/g,'') === phone.replace(/\s/g,'')) return true;
+    return false;
+  });
+}
+
+function showDuplicateWarning(duplicates, proceedFn) {
+  const existing = duplicates.map(s =>
+    `<div style="display:flex;align-items:center;gap:10px;padding:9px 11px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:7px;">
+      ${s.photo
+        ? `<img src="${s.photo}" style="width:38px;height:38px;border-radius:50%;object-fit:cover;flex-shrink:0;">`
+        : `<div style="width:38px;height:38px;border-radius:50%;background:var(--blue-light);display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--blue);flex-shrink:0;">${s.first.charAt(0)}</div>`}
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:700;font-size:13px;">${escHtml(s.first)} ${escHtml(s.last)}</div>
+        <div style="font-size:11px;color:var(--text-muted);">
+          ${s.uid ? `<span style="font-family:monospace;background:var(--blue-light);color:var(--blue);padding:1px 5px;border-radius:4px;font-size:10px;">${s.uid}</span> ` : ''}
+          Class: <strong>${escHtml(s.cls)}</strong>${s.phone ? ' · 📞 ' + escHtml(s.phone) : ''}
+        </div>
+      </div>
+      <button onclick="editStudent(${s.id});document.getElementById('dupWarningModal').classList.remove('open');"
+        style="flex-shrink:0;background:var(--blue);color:#fff;border:none;padding:6px 11px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;">
+        <i class="fas fa-edit"></i> Open
+      </button>
+    </div>`
+  ).join('');
+
+  let modal = document.getElementById('dupWarningModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'dupWarningModal';
+    modal.className = 'modal-overlay';
+    modal.style.zIndex = '10010';
+    document.body.appendChild(modal);
   }
+  modal.innerHTML = `
+    <div class="modal" style="max-width:480px;">
+      <div class="modal-head">
+        <h3><i class="fas fa-exclamation-triangle" style="color:#f59e0b;"></i> Possible Duplicate Detected</h3>
+        <button class="modal-close" onclick="document.getElementById('dupWarningModal').classList.remove('open')"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="background:#fff7e0;border:1px solid #f0c000;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#7a5900;">
+          <i class="fas fa-info-circle"></i> A pupil with a <strong>similar name or phone number</strong> already exists.
+          Please check before creating a new record to avoid duplicates.
+        </div>
+        <p style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px;">Similar existing record(s):</p>
+        ${existing}
+      </div>
+      <div class="modal-foot" style="gap:8px;">
+        <button class="btn-ghost" onclick="document.getElementById('dupWarningModal').classList.remove('open')">Cancel</button>
+        <button class="btn-primary" id="dupProceedBtn" style="background:#f59e0b;border-color:#f59e0b;">
+          <i class="fas fa-user-plus"></i> Create New Pupil Anyway
+        </button>
+      </div>
+    </div>`;
+  modal.classList.add('open');
+  document.getElementById('dupProceedBtn').onclick = () => {
+    modal.classList.remove('open');
+    proceedFn();
+  };
+}
+
+// ── Core enrol logic (runs after duplicate check is cleared) ─────────────────
+function _doEnrolStudent(first, last, cls, gender, phone, photoData) {
+  if (!state.nextStudentUID) state.nextStudentUID = (state.nextStudentId || 1);
+  const uid = generateStudentUID();
+  const academicYear = state.settings.session || new Date().getFullYear() + '/' + (new Date().getFullYear() + 1);
+  const newPupil = {
+    id:            state.nextStudentId++,
+    uid,                            // ← permanent ID, never changes
+    first, last, cls, gender, phone,
+    feeStatus:     'Unpaid',
+    photo:         photoData,
+    status:        'active',        // soft-delete flag
+    academicYear,                   // year of enrolment
+    enrolledDate:  new Date().toLocaleDateString('en-GH'),
+    ...auditCreate(),               // createdBy / createdAt
+  };
+  state.students.push(newPupil);
+  showToast(`✅ ${first} ${last} enrolled! ID: ${uid}`);
+  autoCreateStudentUser(newPupil);
   renderStudents();
   updateDashStats();
   refreshAllPupilDropdowns();
-  // Auto-create a fee record slot for new pupils
-  if (!editId) {
-    const newPupil = state.students[state.students.length - 1];
-    autoCreateFeeRecord(newPupil);
-    renderFees();
-  } else {
-    // If class changed, update the fee record class too
-    const updatedStudent = state.students.find(s => s.id === parseInt(editId));
-    if (updatedStudent) {
-      const feeRec = state.fees.find(f => f.studentId === updatedStudent.id || f.student === `${updatedStudent.first} ${updatedStudent.last}`);
-      if (feeRec) { feeRec.student = `${updatedStudent.first} ${updatedStudent.last}`; feeRec.cls = updatedStudent.cls; feeRec.studentId = updatedStudent.id; renderFees(); }
-    }
-  }
+  autoCreateFeeRecord(newPupil);
+  renderFees();
   autosave();
   document.getElementById('studentModal').classList.remove('open');
   clearStudentModal();
 }
 
-function editStudent(id) {
-  const s = state.students.find(s=>s.id===id);
-  if (!s) return;
-  document.getElementById('studentModalTitle').textContent='Edit Pupil';
-  document.getElementById('sEditId').value=id;
-  document.getElementById('sFirstName').value=s.first;
-  document.getElementById('sLastName').value=s.last;
-  document.getElementById('sClass').value=s.cls;
-  document.getElementById('sGender').value=s.gender;
-  document.getElementById('sPhone').value=s.phone||'';
-  const prev = document.getElementById('sPhotoPreview');
-  if (s.photo) { prev.src=s.photo; prev.style.display='block'; prev.dataset.photo=s.photo; }
-  else { prev.src=''; prev.style.display='none'; prev.dataset.photo=''; }
-  document.getElementById('studentModal').classList.add('open');
+function saveStudent() {
+  const first    = document.getElementById('sFirstName').value.trim();
+  const last     = document.getElementById('sLastName').value.trim();
+  const cls      = document.getElementById('sClass').value;
+  const gender   = document.getElementById('sGender').value;
+  const phone    = document.getElementById('sPhone').value.trim();
+  const editId   = document.getElementById('sEditId').value;
+  const photoData = document.getElementById('sPhotoPreview').dataset.photo || null;
+
+  if (!first || !last) { showToast('⚠️ Please enter pupil\'s full name.'); return; }
+
+  if (editId) {
+    // ── EDIT: update record, sync linked user, sync fee record ───────────────
+    const s = state.students.find(s => s.id === parseInt(editId));
+    if (s) {
+      s.first  = first;
+      s.last   = last;
+      s.cls    = cls;
+      s.gender = gender;
+      s.phone  = phone;
+      if (photoData) s.photo = photoData;
+      // Stamp audit trail
+      s.updatedBy = state.currentUser?.name || 'System';
+      s.updatedAt = new Date().toISOString();
+
+      // ✅ Sync linked user account (name + password) so it never goes stale
+      const linkedUser = state.users.find(u => u.linkedStudentId === s.id);
+      if (linkedUser) {
+        linkedUser.name = `${first} ${last}`;
+        if (phone) linkedUser.password = phone; // phone = portal password
+      }
+
+      // ✅ Sync fee record name + class
+      const feeRec = state.fees.find(f => f.studentId === s.id || f.student === `${s.first} ${s.last}`);
+      if (feeRec) {
+        feeRec.student  = `${first} ${last}`;
+        feeRec.cls      = cls;
+        feeRec.studentId = s.id;
+      }
+    }
+    showToast(`✅ ${first} ${last} updated!`);
+    renderStudents();
+    updateDashStats();
+    refreshAllPupilDropdowns();
+    renderFees();
+    renderUsers?.();
+    autosave();
+    document.getElementById('studentModal').classList.remove('open');
+    clearStudentModal();
+  } else {
+    // ── NEW ENROLMENT: run duplicate check first ──────────────────────────────
+    const dupes = findPotentialDuplicates(first, last, phone);
+    if (dupes.length > 0) {
+      showDuplicateWarning(dupes, () => _doEnrolStudent(first, last, cls, gender, phone, photoData));
+    } else {
+      _doEnrolStudent(first, last, cls, gender, phone, photoData);
+    }
+  }
 }
 
-function deleteStudent(id) {
-  if (!confirm('Remove this pupil record? Their fee record will also be removed.')) return;
+// ════════════════════════════════════════
+// SOFT DELETE (status = inactive)
+// History, fees and reports are preserved.
+// ════════════════════════════════════════
+
+function softDeleteStudent(id) {
   const s = state.students.find(s => s.id === id);
-  if (s) {
-    const name = `${s.first} ${s.last}`;
-    state.fees = state.fees.filter(f => !(f.studentId === id || (f.student === name && f.cls === s.cls)));
-  }
-  state.students = state.students.filter(s=>s.id!==id);
+  if (!s) return;
+  const name = `${s.first} ${s.last}`;
+  if (!confirm(`Remove ${name} from the active pupil list?\n\n✅ Their fee history, reports and records will be preserved.\n⚠️ They will no longer appear in class lists.`)) return;
+  s.status     = 'inactive';
+  s.removedAt  = new Date().toISOString();
+  s.removedBy  = state.currentUser?.name || 'System';
+  // Deactivate linked user account
+  const linkedUser = state.users.find(u => u.linkedStudentId === id);
+  if (linkedUser) linkedUser.active = false;
   renderStudents(); renderFees(); updateDashStats(); refreshAllPupilDropdowns(); autosave();
-  showToast('🗑️ Pupil and linked fee record removed.');
+  showToast(`🗑️ ${name} marked inactive. History preserved.`);
+}
+
+/** Legacy hard-delete kept for backward compatibility (not exposed in UI) */
+function deleteStudent(id) {
+  softDeleteStudent(id);
+}
+
+// ════════════════════════════════════════
+// PROMOTION SYSTEM (per-pupil helpers)
+// Moves a student to the next class.
+// Old reports/fees stay linked to old year.
+// Only current_class changes.
+// CLASS_ORDER is defined in the Promotion section below.
+// ════════════════════════════════════════
+
+function getNextClass(currentCls) {
+  // CLASS_ORDER is the const defined in the Promotion section
+  if (typeof CLASS_ORDER === 'undefined') return null;
+  const idx = CLASS_ORDER.indexOf(currentCls);
+  if (idx < 0 || idx >= CLASS_ORDER.length - 1) return null;
+  return CLASS_ORDER[idx + 1];
+}
+
+function promoteStudent(id) {
+  const s = state.students.find(s => s.id === id);
+  if (!s) return;
+  const nextCls = getNextClass(s.cls);
+  if (!nextCls) { showToast(`ℹ️ ${s.first} ${s.last} is already in the highest class.`); return; }
+  const name = `${s.first} ${s.last}`;
+  if (!confirm(`Promote ${name} from ${s.cls} → ${nextCls}?\n\nAll previous reports and fee records stay linked to ${s.cls} and the current academic year.`)) return;
+
+  // Record promotion history
+  if (!s.promotionHistory) s.promotionHistory = [];
+  s.promotionHistory.push({
+    from: s.cls, to: nextCls,
+    academicYear: state.settings.session || '',
+    promotedBy: state.currentUser?.name || 'System',
+    promotedAt: new Date().toISOString(),
+  });
+
+  s.cls        = nextCls;           // only the class pointer changes
+  s.updatedBy  = state.currentUser?.name || 'System';
+  s.updatedAt  = new Date().toISOString();
+
+  renderStudents(); updateDashStats(); refreshAllPupilDropdowns(); autosave();
+  showToast(`🎓 ${name} promoted to ${nextCls}!`);
+}
+
+/** Bulk-promote all active pupils to the next class (end-of-year).
+ *  Delegates to the existing promoteAllClasses() in the Promotion section. */
+function bulkPromoteAll() {
+  if (typeof promoteAllClasses === 'function') {
+    promoteAllClasses();
+  } else {
+    showToast('⚠️ Promotion system not available.');
+  }
+}
+
+function editStudent(id) {
+  const s = state.students.find(s => s.id === id);
+  if (!s) return;
+  document.getElementById('studentModalTitle').textContent = 'Edit Pupil';
+  document.getElementById('sEditId').value = id;
+  document.getElementById('sFirstName').value = s.first;
+  document.getElementById('sLastName').value  = s.last;
+  document.getElementById('sClass').value     = s.cls;
+  document.getElementById('sGender').value    = s.gender;
+  document.getElementById('sPhone').value     = s.phone || '';
+  const prev = document.getElementById('sPhotoPreview');
+  if (s.photo) { prev.src = s.photo; prev.style.display = 'block'; prev.dataset.photo = s.photo; }
+  else         { prev.src = ''; prev.style.display = 'none'; prev.dataset.photo = ''; }
+  document.getElementById('studentModal').classList.add('open');
 }
 
 function clearStudentModal() {
@@ -1742,6 +2083,76 @@ function clearStudentModal() {
   const prev = document.getElementById('sPhotoPreview');
   prev.src=''; prev.style.display='none'; prev.dataset.photo='';
   document.getElementById('sPhotoInput').value='';
+}
+
+// ════════════════════════════════════════
+// INACTIVE PUPILS VIEWER
+// Shows soft-deleted pupils with restore option.
+// History (reports, fees, payments) is intact.
+// ════════════════════════════════════════
+
+function showInactivePupils() {
+  const inactive = (state.students || []).filter(s => (s.status || 'active') === 'inactive');
+  let modal = document.getElementById('inactivePupilsModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'inactivePupilsModal';
+    modal.className = 'modal-overlay';
+    modal.style.zIndex = '10010';
+    document.body.appendChild(modal);
+  }
+
+  const rows = inactive.length
+    ? inactive.map(s => `
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 11px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:7px;">
+        ${s.photo
+          ? `<img src="${s.photo}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0;opacity:.6;">`
+          : `<div style="width:36px;height:36px;border-radius:50%;background:var(--bg-light);display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--text-muted);flex-shrink:0;">${s.first.charAt(0)}</div>`}
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:700;font-size:13px;color:var(--text-muted);">${escHtml(s.first)} ${escHtml(s.last)}</div>
+          <div style="font-size:11px;color:var(--text-muted);">
+            ${s.uid ? `<span style="font-family:monospace;font-size:10px;">${s.uid}</span> · ` : ''}
+            Was in <strong>${escHtml(s.cls)}</strong>
+            ${s.removedAt ? ' · Removed ' + new Date(s.removedAt).toLocaleDateString('en-GH') : ''}
+          </div>
+        </div>
+        <button onclick="restoreStudent(${s.id});document.getElementById('inactivePupilsModal').classList.remove('open');"
+          style="flex-shrink:0;background:var(--green);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">
+          <i class="fas fa-undo"></i> Restore
+        </button>
+      </div>`).join('')
+    : `<p style="text-align:center;color:var(--text-muted);padding:24px;"><i class="fas fa-check-circle" style="color:#22c55e;"></i> No inactive pupils.</p>`;
+
+  modal.innerHTML = `
+    <div class="modal" style="max-width:500px;">
+      <div class="modal-head">
+        <h3><i class="fas fa-archive"></i> Inactive / Removed Pupils</h3>
+        <button class="modal-close" onclick="document.getElementById('inactivePupilsModal').classList.remove('open')"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-body" style="max-height:420px;overflow-y:auto;">
+        <div style="background:var(--bg-light);border-radius:8px;padding:9px 13px;margin-bottom:14px;font-size:12px;color:var(--text-muted);">
+          <i class="fas fa-info-circle"></i> These pupils were removed but their reports, fees and payment history are fully preserved.
+        </div>
+        ${rows}
+      </div>
+      <div class="modal-foot">
+        <button class="btn-ghost" onclick="document.getElementById('inactivePupilsModal').classList.remove('open')">Close</button>
+      </div>
+    </div>`;
+  modal.classList.add('open');
+}
+
+function restoreStudent(id) {
+  const s = state.students.find(s => s.id === id);
+  if (!s) return;
+  s.status    = 'active';
+  s.removedAt = null;
+  s.removedBy = null;
+  // Re-activate linked user account
+  const linkedUser = state.users.find(u => u.linkedStudentId === id);
+  if (linkedUser) linkedUser.active = true;
+  renderStudents(); updateDashStats(); refreshAllPupilDropdowns(); autosave();
+  showToast(`✅ ${s.first} ${s.last} restored to active pupils.`);
 }
 
 function initStudentPhotoUpload() {
@@ -2105,6 +2516,8 @@ function generateGESReportCard(editIndex) {
     state.reports.push(reportData);
     showToast(`✅ Report saved for ${name} — ${term}! Select the next student to continue.`);
   }
+  // Sync to clean saveReport() helper (doc-spec API)
+  if (studentId) saveReport(studentId, term, year, reportData);
   autosave();
   renderSavedReports();
 
@@ -2602,13 +3015,147 @@ function getArrearsForPupil(studentId, studentName, currentTerm) {
 function totalDueForRecord(f) {
   return (f.due||0) + (f.arrears||0);
 }
-// Sum all payment transactions for a fee record (never use f.paid directly for display)
+// Sum all payment transactions — global ledger is authoritative, f.payments as fallback
 function totalPaidForRecord(f) {
+  // If we have a studentId and a global payments ledger, use it (most accurate)
+  if (f.studentId && state.payments && state.payments.length) {
+    const yr  = f.year || state.settings.session || '';
+    const sum = state.payments
+      .filter(p => p.studentId === f.studentId && p.term === f.term && (p.year === yr || !yr))
+      .reduce((a, p) => a + (p.amount || p.amt || 0), 0);
+    if (sum > 0) return sum;
+  }
+  // Fallback: f.payments[] on the fee record
   if (f.payments && f.payments.length) return f.payments.reduce((a,p) => a + (p.amt||0), 0);
   return f.paid || 0;
 }
 
-// ── FEE STRUCTURE HELPERS ────────────────────────────────
+// ── REPORT STORAGE HELPERS (doc-spec API) ────────────────────
+// Reports are stored in state.reports[] but accessed via these clean helpers.
+// Key: studentId (or name for manual) + term + year — guaranteed unique.
+
+function saveReport(studentId, term, year, reportData) {
+  if (!state.reports) state.reports = [];
+  // Find existing slot for this student+term+year
+  const idx = state.reports.findIndex(r =>
+    (studentId ? r.studentId === studentId : r.name === reportData.name) &&
+    r.term === term && r.year === year
+  );
+  const record = { ...reportData, studentId, term, year, savedAt: Date.now() };
+  if (idx >= 0) state.reports[idx] = record;
+  else state.reports.push(record);
+  autosave();
+}
+
+function getStudentReport(studentId, term, year) {
+  if (!state.reports) return null;
+  return state.reports.find(r =>
+    r.studentId === studentId && r.term === term && r.year === year
+  ) || null;
+}
+
+function getReportsRange(studentId, year, fromTerm, toTerm) {
+  const terms  = ['First Term', 'Second Term', 'Third Term'];
+  const start  = terms.indexOf(fromTerm);
+  const end    = terms.indexOf(toTerm);
+  const result = [];
+  for (let i = start; i <= end; i++) {
+    const r = getStudentReport(studentId, terms[i], year);
+    if (r) result.push(r);
+  }
+  return result;
+}
+
+// ── PAYMENT LEDGER HELPERS (doc-spec API) ───────────────────
+// Global state.payments[] — every payment gets its own record.
+// Also mirrors into f.payments[] on the fee record for backward compat.
+
+function recordPayment(studentId, term, year, amount, meta) {
+  if (!state.payments) state.payments = [];
+  // Look up the permanent UID for cross-referencing
+  const pupil = state.students.find(s => s.id === studentId);
+  const entry = {
+    id:         'PMT-' + Date.now() + '-' + Math.floor(Math.random()*1000),
+    studentId,
+    studentUID: pupil?.uid || null,      // permanent ID — survives name changes
+    term,
+    year:       year || state.settings.session || '',   // ✅ academic year always stamped
+    amount,
+    date:       meta?.date    || new Date().toISOString().slice(0, 10),
+    method:     meta?.method  || 'Cash',
+    note:       meta?.note    || '',
+    receiptNo:  meta?.receiptNo || '',
+    rcvdBy:     meta?.rcvdBy  || (state.currentUser?.name || 'Admin'),
+    addedAt:    new Date().toISOString(),
+    createdBy:  state.currentUser?.name || 'System',  // ✅ audit trail
+  };
+  state.payments.push(entry);
+  return entry;
+}
+
+function getStudentPayments(studentId, term, year) {
+  if (!state.payments) return [];
+  return state.payments.filter(p =>
+    p.studentId === studentId &&
+    (!term || p.term === term) &&
+    (!year || p.year === year)
+  ).sort((a, b) => new Date(a.addedAt) - new Date(b.addedAt));
+}
+
+function getStudentStatement(studentId) {
+  if (!state.payments) return [];
+  return state.payments
+    .filter(p => p.studentId === studentId)
+    .sort((a, b) => new Date(a.addedAt) - new Date(b.addedAt));
+}
+
+// Calculate a student's total outstanding balance across ALL terms
+function calculateBalance(student) {
+  if (!student) return 0;
+  const cls     = student.cls;
+  const year    = state.settings.session || '';
+  const allPaid = (state.payments || [])
+    .filter(p => p.studentId === student.id)
+    .reduce((s, p) => s + (p.amount || p.amt || 0), 0);
+  const totalDue = (state.feeStructure || [])
+    .filter(f => f.cls === cls && (f.year === year || !f.year))
+    .reduce((s, f) => s + (f.amount || 0), 0);
+  return totalDue - allPaid;
+}
+
+// Migrate legacy f.payments[] into global state.payments[] (runs once on load)
+function migratePaymentsToGlobalLedger() {
+  if (!state.payments) state.payments = [];
+  if (!state.fees) return;
+  let migrated = 0;
+  state.fees.forEach(f => {
+    if (!f.payments || !f.payments.length) return;
+    f.payments.forEach(p => {
+      // Only migrate if not already in global ledger (check by receiptNo or addedAt)
+      const alreadyIn = state.payments.some(gp =>
+        gp.receiptNo && gp.receiptNo === p.receiptNo ||
+        gp.addedAt   && gp.addedAt   === p.addedAt
+      );
+      if (!alreadyIn && f.studentId) {
+        state.payments.push({
+          id:        'PMT-MIG-' + Date.now() + '-' + migrated,
+          studentId: f.studentId,
+          term:      f.term, year: f.year || state.settings.session || '',
+          amount:    p.amt || 0,
+          date:      p.date || f.createdAt?.slice(0,10) || '',
+          method:    p.method || 'Cash',
+          note:      p.note || '',
+          receiptNo: p.receiptNo || '',
+          rcvdBy:    p.rcvdBy || 'Admin',
+          addedAt:   p.addedAt || new Date().toISOString()
+        });
+        migrated++;
+      }
+    });
+  });
+  if (migrated > 0) { autosave(); console.log('[migrate] moved ' + migrated + ' payments to global ledger'); }
+}
+// ────────────────────────────────────────────────────────────
 // Get the expected fee for a class+term+year from the structure table
 function getFeeFromStructure(cls, term, year) {
   if (!state.feeStructure) return null;
@@ -3193,89 +3740,246 @@ function initFees() {
   document.getElementById('feeStructureBtn') && document.getElementById('feeStructureBtn').addEventListener('click', openFeeStructureModal);
   initFeeStructure();
 
-  // Fee Bill Generator
-  document.getElementById('generateBillBtn').addEventListener('click',()=>{
-    document.getElementById('billYear').value = state.settings.session;
-    refreshAllPupilDropdowns();
-    updateBillTotal();
-    document.getElementById('feeBillModal').classList.add('open');
-  });
+  // Class Bill Generator
+  document.getElementById('generateBillBtn').addEventListener('click', openClassBillModal);
   document.getElementById('closeFeeBillModal').addEventListener('click',()=>document.getElementById('feeBillModal').classList.remove('open'));
   document.getElementById('cancelFeeBillModal').addEventListener('click',()=>document.getElementById('feeBillModal').classList.remove('open'));
   document.getElementById('addBillItemBtn').addEventListener('click', addBillItem);
+  document.getElementById('applyClassBillBtn') && document.getElementById('applyClassBillBtn').addEventListener('click', applyClassBillToStudents);
   document.getElementById('printBillBtn').addEventListener('click', printFeeBill);
-  document.getElementById('billItemsContainer').addEventListener('input', updateBillTotal);
+  document.getElementById('billItemsContainer').addEventListener('input', () => { updateBillTotal(); renderBillPreview(); });
   document.getElementById('billItemsContainer').addEventListener('click', e=>{
     if (e.target.closest('.remove-bill-item')) {
       e.target.closest('.bill-item-row').remove();
-      updateBillTotal();
+      updateBillTotal(); renderBillPreview();
     }
   });
+  ['billClass','billTerm','billYear'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => { loadClassBillItems(); renderBillPreview(); });
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
+// CLASS BILL SYSTEM — bills are created per class, auto-assigned to all students
+// ════════════════════════════════════════════════════════════════
+
+function openClassBillModal() {
+  if (!state.classBills) state.classBills = [];
+  const year = state.settings.session || '';
+  document.getElementById('billYear').value = year;
+  const termEl = document.getElementById('billTerm');
+  if (termEl && state.settings.term) termEl.value = state.settings.term;
+  // Build class list from enrolled pupils
+  const classes = [...new Set(state.students.map(s=>s.cls).filter(Boolean))].sort();
+  const clsSel  = document.getElementById('billClass');
+  clsSel.innerHTML = '<option value="">-- Select Class --</option>'
+    + classes.map(c=>`<option value="${escHtml(c)}">${escHtml(c)}</option>`).join('');
+  loadClassBillItems();
+  renderBillPreview();
+  document.getElementById('feeBillModal').classList.add('open');
+}
+
+function loadClassBillItems() {
+  const cls  = document.getElementById('billClass').value;
+  const term = document.getElementById('billTerm').value;
+  const year = document.getElementById('billYear').value || state.settings.session;
+  const container = document.getElementById('billItemsContainer');
+  if (!cls) { container.innerHTML = _emptyBillRow(); updateBillTotal(); return; }
+  const saved = (state.classBills||[]).find(b=>b.cls===cls&&b.term===term&&b.year===year);
+  if (saved && saved.items && saved.items.length) {
+    container.innerHTML = saved.items.map(it =>
+      `<div class="bill-item-row">
+        <input type="text" class="form-input bill-desc" value="${escHtml(it.desc)}" placeholder="Description"/>
+        <input type="number" class="form-input bill-amt" value="${it.amt}" placeholder="Amount (GH₵)" min="0"/>
+        <button class="tbl-btn danger remove-bill-item"><i class="fas fa-minus"></i></button>
+      </div>`
+    ).join('');
+  } else {
+    container.innerHTML = _emptyBillRow();
+  }
+  updateBillTotal();
+}
+
+function _emptyBillRow() {
+  return `<div class="bill-item-row">
+    <input type="text" class="form-input bill-desc" placeholder="e.g. Tuition Fee"/>
+    <input type="number" class="form-input bill-amt" placeholder="Amount (GH₵)" min="0"/>
+    <button class="tbl-btn danger remove-bill-item"><i class="fas fa-minus"></i></button>
+  </div>`;
 }
 
 function addBillItem() {
   const container = document.getElementById('billItemsContainer');
-  const row = document.createElement('div');
-  row.className = 'bill-item-row';
-  row.innerHTML = `<input type="text" class="form-input bill-desc" placeholder="Description"/><input type="number" class="form-input bill-amt" placeholder="Amount (GH₵)" min="0"/><button class="tbl-btn danger remove-bill-item"><i class="fas fa-minus"></i></button>`;
-  container.appendChild(row);
+  const div = document.createElement('div');
+  div.className = 'bill-item-row';
+  div.innerHTML = `<input type="text" class="form-input bill-desc" placeholder="Description"/>
+    <input type="number" class="form-input bill-amt" placeholder="Amount (GH₵)" min="0"/>
+    <button class="tbl-btn danger remove-bill-item"><i class="fas fa-minus"></i></button>`;
+  container.appendChild(div);
 }
 
 function updateBillTotal() {
-  const amts = Array.from(document.querySelectorAll('.bill-amt')).map(i=>parseFloat(i.value)||0);
+  const amts  = Array.from(document.querySelectorAll('.bill-amt')).map(i=>parseFloat(i.value)||0);
   const total = amts.reduce((a,b)=>a+b,0);
-  document.getElementById('billTotalDisplay').textContent = 'GH₵ ' + total.toFixed(2);
+  document.getElementById('billTotalDisplay').textContent = 'GH\u20B3 ' + total.toFixed(2);
+  return total;
 }
 
-function printFeeBill() {
-  const student = document.getElementById('billStudentName').value.trim();
-  if (!student){ showToast('⚠️ Enter pupil name.'); return; }
-  const cls = document.getElementById('billClass').value;
+function _getBillItems() {
+  return Array.from(document.querySelectorAll('#billItemsContainer .bill-item-row'))
+    .map((r,i) => ({
+      sn:   i+1,
+      desc: r.querySelector('.bill-desc').value.trim(),
+      amt:  parseFloat(r.querySelector('.bill-amt').value)||0
+    })).filter(it => it.desc || it.amt > 0);
+}
+
+// Live preview panel — shows student count, itemised breakdown, duplicate warning
+function renderBillPreview() {
+  const wrap = document.getElementById('billPreviewWrap');
+  if (!wrap) return;
+  const cls  = document.getElementById('billClass').value;
   const term = document.getElementById('billTerm').value;
   const year = document.getElementById('billYear').value || state.settings.session;
-  const rows = Array.from(document.querySelectorAll('#billItemsContainer .bill-item-row'));
-  const items = rows.map((r,i)=>({
-    sn: i+1,
-    desc: r.querySelector('.bill-desc').value.trim()||'—',
-    amt: parseFloat(r.querySelector('.bill-amt').value)||0
-  })).filter(it=>it.desc!=='—'||it.amt>0);
-  if (!items.length){ showToast('⚠️ Add at least one fee item.'); return; }
-  const total = items.reduce((a,b)=>a+b.amt,0);
-  const school = state.settings;
-  const logoHtml = state.schoolLogo ? `<img src="${state.schoolLogo}" style="height:70px;object-fit:contain;"/>` : '🏫';
-  const win = window.open('','_blank');
-  win.document.write(`<!DOCTYPE html><html><head><title>Fee Bill — ${student}</title><style>
-    body{font-family:'Plus Jakarta Sans',Arial,sans-serif;max-width:600px;margin:30px auto;color:#1a2133;font-size:14px;}
-    .header{text-align:center;margin-bottom:20px;}
-    .logo{font-size:40px;margin-bottom:8px;}
-    h1{font-size:20px;font-weight:800;margin:4px 0;}
-    h2{font-size:14px;font-weight:500;color:#64748b;margin:2px 0;}
+  if (!cls) {
+    wrap.innerHTML = '<p style="text-align:center;color:var(--text-muted);font-size:13px;padding:16px 0;">Select a class to see the preview.</p>';
+    return;
+  }
+  const pupils   = state.students.filter(s=>s.cls===cls);
+  const items    = _getBillItems();
+  const total    = items.reduce((a,i)=>a+i.amt,0);
+  const existing = (state.classBills||[]).find(b=>b.cls===cls&&b.term===term&&b.year===year);
+  const dupWarn  = existing
+    ? `<div style="background:#fff7e0;border:1px solid #f0c000;border-radius:6px;padding:8px 12px;font-size:12px;color:#7a5900;margin-bottom:10px;">
+        <i class="fas fa-exclamation-triangle"></i>
+        Bill template already exists for <strong>${escHtml(cls)} &middot; ${escHtml(term)} ${escHtml(year)}</strong>.
+        Applying again will update the template and re-apply to all students in this class.
+      </div>`
+    : '';
+  const itemRows = items.length
+    ? items.map(it=>`<tr>
+        <td style="padding:5px 8px;">${escHtml(it.desc)}</td>
+        <td style="padding:5px 8px;text-align:right;font-weight:700;">GH\u20B3${it.amt.toFixed(2)}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="2" style="padding:8px;color:var(--text-muted);text-align:center;font-size:12px;">No items added yet.</td></tr>';
+  wrap.innerHTML = dupWarn + `
+    <div style="background:var(--bg-light);border:1px solid var(--border);border-radius:8px;padding:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <strong style="font-size:13px;">${escHtml(cls)} &middot; ${escHtml(term)} &middot; ${escHtml(year)}</strong>
+        <span style="background:var(--blue-light);color:var(--blue);padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;">
+          <i class="fas fa-user-graduate"></i> ${pupils.length} student${pupils.length!==1?'s':''} will be billed
+        </span>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <tbody>${itemRows}</tbody>
+        <tfoot><tr style="border-top:2px solid var(--border);">
+          <td style="padding:8px;font-weight:800;">TOTAL DUE PER STUDENT</td>
+          <td style="padding:8px;text-align:right;font-weight:800;font-size:16px;color:var(--blue);">GH\u20B3${total.toFixed(2)}</td>
+        </tr></tfoot>
+      </table>
+    </div>`;
+}
+
+// Save bill template → write to feeStructure → auto-create/update fee records for every student
+function applyClassBillToStudents() {
+  const cls  = document.getElementById('billClass').value;
+  const term = document.getElementById('billTerm').value;
+  const year = document.getElementById('billYear').value || state.settings.session;
+  if (!cls)  { showToast('\u26A0\uFE0F Select a class first.'); return; }
+  const items = _getBillItems();
+  if (!items.length) { showToast('\u26A0\uFE0F Add at least one fee item.'); return; }
+  const total  = items.reduce((a,i)=>a+i.amt,0);
+  const pupils = state.students.filter(s=>s.cls===cls);
+  if (!pupils.length) { showToast('\u26A0\uFE0F No pupils enrolled in ' + cls + '.'); return; }
+
+  // 1. Save class bill template
+  if (!state.classBills) state.classBills = [];
+  const billIdx = state.classBills.findIndex(b=>b.cls===cls&&b.term===term&&b.year===year);
+  const billRec = { cls, term, year, items: items.map(({desc,amt})=>({desc,amt})), total, updatedAt: new Date().toISOString() };
+  if (billIdx >= 0) state.classBills[billIdx] = billRec;
+  else state.classBills.push(billRec);
+
+  // 2. Write to feeStructure (single source of truth for balance calcs)
+  setFeeStructure(cls, term, year, total);
+
+  // 3. Auto-create or update fee record for every student in class
+  let created = 0, updated = 0;
+  pupils.forEach(p => {
+    const name    = `${p.first} ${p.last}`;
+    const arrears = getArrearsForPupil(p.id, name, term);
+    const existing = state.fees.find(f =>
+      (f.studentId===p.id || f.student===name) && f.term===term && (f.year===year||!f.year)
+    );
+    if (existing) {
+      existing.due = total; existing.cls = cls; existing.year = year;
+      updated++;
+    } else {
+      state.fees.push({
+        id: state.nextFeeId++, student: name, cls, due: total, arrears,
+        payments: [], paid: 0, term, year, studentId: p.id,
+        createdAt: new Date().toISOString()
+      });
+      created++;
+    }
+    p.feeStatus = 'Unpaid';
+  });
+
+  renderFees(); updateFeeStats(); renderStudents(); autosave();
+  document.getElementById('feeBillModal').classList.remove('open');
+  showToast(`\u2705 Bill applied: ${created} created, ${updated} updated \u2014 ${pupils.length} students in ${cls} billed GH\u20B3${total.toFixed(2)} each.`);
+}
+
+// Print fee bills — one per student in the selected class
+function printFeeBill() {
+  const cls  = document.getElementById('billClass').value;
+  const term = document.getElementById('billTerm').value;
+  const year = document.getElementById('billYear').value || state.settings.session;
+  if (!cls) { showToast('\u26A0\uFE0F Select a class first.'); return; }
+  const items = _getBillItems();
+  if (!items.length) { showToast('\u26A0\uFE0F Add at least one fee item.'); return; }
+  const total   = items.reduce((a,b)=>a+b.amt,0);
+  const school  = state.settings;
+  const pupils  = state.students.filter(s=>s.cls===cls);
+  const targets = pupils.length ? pupils : [{ first: cls, last: '', cls }];
+  const dateStr = new Date().toLocaleDateString('en-GH');
+  const logoHtml = state.schoolLogo
+    ? `<img src="${state.schoolLogo}" style="height:70px;object-fit:contain;"/>`
+    : '<span style="font-size:36px;">&#127979;</span>';
+  const css = `body{font-family:'Plus Jakarta Sans',Arial,sans-serif;max-width:600px;margin:30px auto;color:#1a2133;font-size:14px;}
+    .header{text-align:center;margin-bottom:20px;}h1{font-size:20px;font-weight:800;margin:4px 0;}
+    h2{font-size:14px;color:#64748b;margin:2px 0;}
     .bill-title{background:#1a6fd4;color:#fff;text-align:center;padding:10px;border-radius:8px;font-weight:700;font-size:16px;margin:20px 0 14px;}
     .info-row{display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px;}
     table{width:100%;border-collapse:collapse;margin-top:14px;}
     th{background:#e8f0fb;color:#1a6fd4;text-align:left;padding:8px 10px;font-size:12px;font-weight:700;}
     td{padding:8px 10px;border-bottom:1px solid #dde3ef;font-size:13px;}
     .total-row td{background:#e8f0fb;font-weight:800;font-size:15px;color:#1a6fd4;}
-    .footer{margin-top:20px;font-size:11px;color:#94a3b8;text-align:center;}
-  </style></head><body>
-    <div class="header">
-      <div class="logo">${logoHtml}</div>
-      <h1>${school.schoolName||'Ghana School'}</h1>
-      <h2>Ghana Education Service</h2>
-      ${school.address?`<h2>${school.address}</h2>`:''}
-    </div>
-    <div class="bill-title">FEE BILL — ${term.toUpperCase()} ${year}</div>
-    <div class="info-row"><span><strong>Student:</strong> ${student}</span><span><strong>Class:</strong> ${cls}</span></div>
-    <div class="info-row"><span><strong>Date:</strong> ${new Date().toLocaleDateString('en-GH')}</span><span><strong>Bill No:</strong> BILL-${Date.now().toString().slice(-6)}</span></div>
-    <table>
-      <thead><tr><th>S/N</th><th>Description</th><th style="text-align:right;">Amount (GH₵)</th></tr></thead>
-      <tbody>${items.map(it=>`<tr><td>${it.sn}</td><td>${it.desc}</td><td style="text-align:right;">${it.amt.toFixed(2)}</td></tr>`).join('')}</tbody>
-      <tfoot><tr class="total-row"><td colspan="2">TOTAL DUE</td><td style="text-align:right;">GH₵ ${total.toFixed(2)}</td></tr></tfoot>
-    </table>
-    <div class="footer">Please make payment by the due date · ${school.schoolName||'Ghana School'} · EduManage Pro</div>
-    <script>window.onload=function(){window.print();}<\/script>
+    .footer{margin-top:20px;font-size:11px;color:#94a3b8;text-align:center;border-top:1px solid #dde3ef;padding-top:10px;}
+    @media print{button{display:none;}.page-break{page-break-after:always;}}`;
+  // Batch all students into ONE print window (page-break between each)
+  const pages = targets.map((p, idx) => {
+    const name = p.first + (p.last ? ' ' + p.last : '');
+    return `<div class="${idx < targets.length-1 ? 'page-break' : ''}">
+      <div class="header">${logoHtml}<h1>${escHtml(school.schoolName||'Ghana School')}</h1>
+        <h2>Ghana Education Service</h2>${school.address?`<h2>${escHtml(school.address)}</h2>`:''}
+      </div>
+      <div class="bill-title">FEE BILL &mdash; ${escHtml(term.toUpperCase())} ${escHtml(year)}</div>
+      <div class="info-row"><span><strong>Student:</strong> ${escHtml(name)}</span><span><strong>Class:</strong> ${escHtml(cls)}</span></div>
+      <div class="info-row"><span><strong>Date:</strong> ${dateStr}</span><span><strong>Bill No:</strong> BILL-${Date.now().toString().slice(-5)}-${String(idx+1).padStart(3,'0')}</span></div>
+      <table><thead><tr><th>S/N</th><th>Description</th><th style="text-align:right;">Amount (GH&#8373;)</th></tr></thead>
+        <tbody>${items.map(it=>`<tr><td>${it.sn}</td><td>${escHtml(it.desc)}</td><td style="text-align:right;">${it.amt.toFixed(2)}</td></tr>`).join('')}</tbody>
+        <tfoot><tr class="total-row"><td colspan="2">TOTAL DUE</td><td style="text-align:right;">GH&#8373; ${total.toFixed(2)}</td></tr></tfoot>
+      </table>
+      <div class="footer">Please make payment by the due date &middot; ${escHtml(school.schoolName||'Ghana School')} &middot; EduManage Pro</div>
+    </div>`;
+  }).join('');
+  const w = window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html><head><title>Fee Bills &mdash; ${escHtml(cls)} ${escHtml(term)}</title><style>${css}</style></head><body>
+    ${pages}
+    <div style="text-align:center;margin-top:20px;"><button onclick="window.print()" style="padding:8px 24px;background:#1a6fd4;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:14px;">&#128424;&#65039; Print All ${targets.length} Bill${targets.length!==1?'s':''}</button></div>
   </body></html>`);
-  win.document.close();
+  w.document.close();
 }
 
 
@@ -3436,19 +4140,26 @@ function addPaymentEntry() {
   const note   = document.getElementById('fNewPayNote').value.trim() || '';
   const method = document.getElementById('fNewPayMethod')?.value || 'Cash';
   const rcvdBy = (state.currentUser && state.currentUser.name) || 'Admin';
-  if (amt <= 0) { showToast('⚠️ Enter a valid amount.'); return; }
-  // Generate receipt number: RCPT-YEAR-#####
-  const year = new Date().getFullYear();
+  if (amt <= 0) { showToast('\u26A0\uFE0F Enter a valid amount.'); return; }
+  const yearNum = new Date().getFullYear();
   if (!state.nextReceiptId) state.nextReceiptId = 1;
-  const receiptNo = 'RCPT-' + year + '-' + String(state.nextReceiptId++).padStart(5, '0');
-  autosave(); // persist incremented nextReceiptId
-  _feePaymentDraft.push({ amt, date, note, method, rcvdBy, receiptNo, addedAt: new Date().toISOString() });
+  const receiptNo = 'RCPT-' + yearNum + '-' + String(state.nextReceiptId++).padStart(5, '0');
+  const addedAt   = new Date().toISOString();
+  const entry = { amt, date, note, method, rcvdBy, receiptNo, addedAt };
+  _feePaymentDraft.push(entry);
+  // Mirror to global payments ledger (doc-spec: state.payments[])
+  const selId = parseInt(document.getElementById('fStudentSelect')?.value) || null;
+  const term  = document.getElementById('fTerm')?.value || state.settings.term || '';
+  const year  = state.settings.session || '';
+  if (selId && term) {
+    recordPayment(selId, term, year, amt, { date, note, method, rcvdBy, receiptNo, addedAt });
+  }
+  autosave();
   document.getElementById('fNewPayAmt').value  = '';
   document.getElementById('fNewPayNote').value = '';
   renderPaymentLogInModal();
-  showToast('✅ Payment entry added — ' + receiptNo);
+  showToast('\u2705 Payment entry added \u2014 ' + receiptNo);
 }
-
 function removePaymentEntry(idx) {
   _feePaymentDraft.splice(idx, 1);
   renderPaymentLogInModal();
@@ -4336,7 +5047,7 @@ function importBackup(e) {
       if (data.teachers)      state.teachers      = data.teachers;
       if (data.classes)       state.classes       = data.classes;
       if (data.albums)        state.albums        = data.albums;
-      if (data.reports)       state.reports       = data.reports;
+      _loadReports(data);
       if (data.weeklyRecords) state.weeklyRecords = data.weeklyRecords;
       if (data.attendance)    state.attendance    = data.attendance;
       if (data.users)         state.users         = data.users;
@@ -4744,34 +5455,248 @@ const CLASS_ORDER = ['Creche','Nursery 1','Nursery 2','KG1','KG2','BS.1','BS.2',
 
 function renderPromotionPreview() {
   const fromCls = document.getElementById('promoteFromClass').value;
-  const toCls = CLASS_ORDER[CLASS_ORDER.indexOf(fromCls)+1];
-  const pupils = state.students.filter(s=>s.cls===fromCls);
+  const toCls   = CLASS_ORDER[CLASS_ORDER.indexOf(fromCls)+1];
+  const pupils  = state.students.filter(s=>s.cls===fromCls);
   const preview = document.getElementById('promotionPreview');
+  if (!fromCls) { preview.innerHTML=''; return; }
   if (!pupils.length) { preview.innerHTML=`<p class="empty-state">No pupils in ${fromCls}.</p>`; return; }
-  if (!toCls) { preview.innerHTML=`<p class="empty-state">${fromCls} is the highest class.</p>`; return; }
+  if (!toCls) { preview.innerHTML=`<p class="empty-state">${fromCls} is the highest class. These pupils graduate.</p>`; return; }
   preview.innerHTML = `
     <p style="margin-bottom:12px;font-size:13px;color:var(--text-muted);">
-      <strong>${pupils.length} pupils</strong> in ${fromCls} will be promoted to <strong>${toCls}</strong>
+      <strong>${pupils.length} pupil${pupils.length!==1?'s':''}</strong> in ${escHtml(fromCls)} will be promoted to <strong>${escHtml(toCls)}</strong>
     </p>
     <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
-      ${pupils.map(p=>`<span style="background:var(--blue-light);color:var(--blue);padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;">${p.first} ${p.last}</span>`).join('')}
+      ${pupils.map(p=>`<span style="background:var(--blue-light);color:var(--blue);padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600;">${escHtml(p.first+' '+p.last)}</span>`).join('')}
     </div>
-    <button class="btn-primary" style="width:100%;" onclick="executePromotion('${fromCls}','${toCls}')">
-      <i class="fas fa-arrow-up"></i> Promote All ${pupils.length} Pupils: ${fromCls} → ${toCls}
+    <button class="btn-primary" style="width:100%;" onclick="executePromotion('${escHtml(fromCls)}','${escHtml(toCls)}')">
+      <i class="fas fa-arrow-up"></i> Promote All ${pupils.length} Pupil${pupils.length!==1?'s':''}: ${escHtml(fromCls)} → ${escHtml(toCls)}
     </button>`;
 }
 
+// ── CORE PROMOTION: only changes s.cls, never touches reports/fees/attendance ──
 function executePromotion(from, to) {
-  if (!confirm(`Promote all pupils from ${from} to ${to}? This cannot be undone.`)) return;
+  if (!confirm(`Promote all pupils from ${from} to ${to}?\n\nAll reports, fees and attendance history will be fully preserved.`)) return;
+  const year = state.settings.session || new Date().getFullYear().toString();
   let count = 0;
-  state.students.forEach(s=>{ if(s.cls===from){ s.cls=to; count++; } });
+  state.students.forEach(s => {
+    if (s.cls !== from) return;
+    // Record promotion history BEFORE changing the class
+    if (!s.promotionHistory) s.promotionHistory = [];
+    s.promotionHistory.push({
+      from, to,
+      year,
+      promotedAt: new Date().toISOString(),
+      promotedBy: state.currentUser?.name || 'Admin'
+    });
+    s.cls = to;
+    count++;
+  });
   renderStudents(); updateDashStats(); autosave();
-  document.getElementById('promotionPreview').innerHTML=`<p style="color:var(--green);font-weight:700;"><i class="fas fa-check-circle"></i> ✅ ${count} pupils promoted from ${from} to ${to}!</p>`;
-  showToast(`✅ ${count} pupils promoted to ${to}!`);
+  document.getElementById('promotionPreview').innerHTML =
+    `<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:14px;color:#166534;font-weight:700;font-size:14px;">
+      <i class="fas fa-check-circle"></i> ${count} pupil${count!==1?'s':''} promoted from ${escHtml(from)} to ${escHtml(to)}!
+      <div style="font-size:12px;font-weight:400;margin-top:4px;color:#166534;">All reports, fees and attendance records are preserved.</div>
+    </div>`;
+  renderPromotionHistory();
+  showToast(`\u2705 ${count} pupils promoted to ${to}!`);
+}
+
+// ── PROMOTE ALL CLASSES at once (full school promotion) ──
+function promoteAllClasses() {
+  const year = state.settings.session || new Date().getFullYear().toString();
+  const preview = [];
+  CLASS_ORDER.forEach((cls, i) => {
+    const next    = CLASS_ORDER[i+1];
+    const count   = state.students.filter(s=>s.cls===cls).length;
+    if (count && next) preview.push(`${cls} → ${next} (${count} pupils)`);
+  });
+  if (!preview.length) { showToast('\u26A0\uFE0F No pupils to promote.'); return; }
+  const msg = `PROMOTE ALL CLASSES?\n\nThis will promote:\n${preview.join('\n')}\n\nAll reports, fees and attendance will be fully preserved.\n\nType YES to confirm:`;
+  const confirm = prompt(msg);
+  if (!confirm || confirm.trim().toUpperCase() !== 'YES') { showToast('Promotion cancelled.'); return; }
+  let total = 0;
+  CLASS_ORDER.forEach((cls, i) => {
+    const next = CLASS_ORDER[i+1];
+    if (!next) return; // last class — graduates, skip
+    state.students.forEach(s => {
+      if (s.cls !== cls) return;
+      if (!s.promotionHistory) s.promotionHistory = [];
+      s.promotionHistory.push({ from: cls, to: next, year, promotedAt: new Date().toISOString(), promotedBy: state.currentUser?.name || 'Admin' });
+      s.cls = next;
+      total++;
+    });
+  });
+  renderStudents(); updateDashStats(); autosave();
+  renderPromotionHistory();
+  document.getElementById('promotionPreview').innerHTML = '';
+  document.getElementById('promoteFromClass').value = '';
+  showToast(`\u2705 Full school promotion complete — ${total} pupils promoted!`);
+}
+
+// ── PROMOTION HISTORY TABLE ──
+function renderPromotionHistory() {
+  const wrap = document.getElementById('promotionHistoryWrap');
+  if (!wrap) return;
+  // Flatten all promotion history events
+  const events = [];
+  state.students.forEach(s => {
+    (s.promotionHistory||[]).forEach(h => {
+      events.push({ name: `${s.first} ${s.last}`, ...h, studentId: s.id });
+    });
+  });
+  if (!events.length) {
+    wrap.innerHTML = '<p style="text-align:center;color:var(--text-muted);font-size:13px;padding:20px;">No promotion records yet.</p>';
+    return;
+  }
+  events.sort((a,b) => new Date(b.promotedAt) - new Date(a.promotedAt));
+  wrap.innerHTML = `<table class="data-table"><thead><tr>
+    <th>#</th><th>Pupil</th><th>From</th><th>To</th><th>Year</th><th>Date</th><th>By</th><th>Transcript</th>
+  </tr></thead><tbody>
+  ${events.map((e,i)=>`<tr>
+    <td>${i+1}</td>
+    <td><strong>${escHtml(e.name)}</strong></td>
+    <td><span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;">${escHtml(e.from)}</span></td>
+    <td><span style="background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;">${escHtml(e.to)}</span></td>
+    <td style="font-size:12px;">${escHtml(e.year||'—')}</td>
+    <td style="font-size:12px;color:var(--text-muted);">${e.promotedAt ? new Date(e.promotedAt).toLocaleDateString('en-GH') : '—'}</td>
+    <td style="font-size:12px;color:var(--text-muted);">${escHtml(e.promotedBy||'—')}</td>
+    <td><button class="tbl-btn" onclick="printFullAcademicTranscript(${e.studentId})" title="Print full academic transcript"><i class="fas fa-file-alt"></i></button></td>
+  </tr>`).join('')}
+  </tbody></table>`;
+}
+
+// ── FULL ACADEMIC TRANSCRIPT — all years, all terms, preserves class at time ──
+function printFullAcademicTranscript(studentId) {
+  const student = state.students.find(s => s.id === studentId);
+  if (!student) { showToast('\u26A0\uFE0F Student not found.'); return; }
+  const name     = `${student.first} ${student.last}`;
+  const reports  = state.reports.filter(r =>
+    r.studentId === studentId || r.name === name
+  ).sort((a,b) => {
+    if (a.year !== b.year) return (a.year||'').localeCompare(b.year||'');
+    return (TERM_ORDER[a.term]||0) - (TERM_ORDER[b.term]||0);
+  });
+
+  if (!reports.length) { showToast('\u26A0\uFE0F No reports found for this student.'); return; }
+
+  // Group by academic year
+  const byYear = {};
+  reports.forEach(r => {
+    const yr = r.year || 'Unknown Year';
+    if (!byYear[yr]) byYear[yr] = [];
+    byYear[yr].push(r);
+  });
+
+  const school   = state.settings;
+  const logoHtml = state.schoolLogo
+    ? `<img src="${state.schoolLogo}" style="height:70px;object-fit:contain;"/>`
+    : `<div style="font-size:40px;">&#127979;</div>`;
+  const photoHtml = student.photo
+    ? `<img src="${student.photo}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid #1d4ed8;"/>`
+    : `<div style="width:80px;height:80px;border-radius:50%;background:#dbeafe;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:800;color:#1d4ed8;">${name.charAt(0)}</div>`;
+
+  // Build promotion timeline
+  const history = (student.promotionHistory||[])
+    .sort((a,b)=>new Date(a.promotedAt)-new Date(b.promotedAt))
+    .map(h=>`<span style="background:#f0fdf4;border:1px solid #86efac;padding:3px 10px;border-radius:20px;font-size:11px;color:#166534;font-weight:700;">${escHtml(h.from)} → ${escHtml(h.to)} (${escHtml(h.year||'')})</span>`)
+    .join(' ');
+
+  // Build year blocks
+  const yearBlocks = Object.entries(byYear).map(([yr, reps]) => {
+    // Determine class for this year (from first report of that year)
+    const clsForYear = reps[0]?.cls || '—';
+    const termRows = reps.map(r => {
+      const avg = r.avg || '—';
+      const grade = r.avgGrade || '—';
+      const subRows = (r.subjects||[]).map(s=>`
+        <tr>
+          <td style="padding:4px 8px;">${escHtml(s.name)}</td>
+          <td style="text-align:center;padding:4px;">${s.cls||'—'}</td>
+          <td style="text-align:center;padding:4px;">${s.exam||'—'}</td>
+          <td style="text-align:center;padding:4px;font-weight:700;">${s.total||'—'}</td>
+          <td style="text-align:center;padding:4px;">${s.grade||'—'}</td>
+        </tr>`).join('');
+      return `
+        <div style="margin-bottom:14px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+          <div style="background:#3b82f6;color:#fff;padding:8px 14px;display:flex;justify-content:space-between;align-items:center;">
+            <strong style="font-size:13px;">${escHtml(r.term)}</strong>
+            <span style="font-size:13px;">Avg: <strong>${avg}/100</strong> &nbsp; Grade: <strong>${grade}</strong> &nbsp; Pos: ${r.position||'—'}/${r.classSize||'—'}</span>
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:11px;">
+            <thead><tr style="background:#f3f4f6;">
+              <th style="text-align:left;padding:5px 8px;">Subject</th>
+              <th style="text-align:center;padding:5px;">Class Score</th>
+              <th style="text-align:center;padding:5px;">Exam Score</th>
+              <th style="text-align:center;padding:5px;">Total</th>
+              <th style="text-align:center;padding:5px;">Grade</th>
+            </tr></thead>
+            <tbody>${subRows}</tbody>
+          </table>
+          ${r.remark||r.hmRemark ? `<div style="padding:6px 12px;font-size:11px;background:#f9fafb;border-top:1px solid #e5e7eb;color:#555;">${r.remark?`<strong>Teacher:</strong> ${escHtml(r.remark)} &nbsp;`:''} ${r.hmRemark?`<strong>Head Teacher:</strong> ${escHtml(r.hmRemark)}`:''}` : ''}
+        </div>`;
+    }).join('');
+
+    return `
+      <div style="margin-bottom:24px;border:2px solid #1d4ed8;border-radius:10px;overflow:hidden;">
+        <div style="background:#1d4ed8;color:#fff;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;">
+          <div style="font-size:16px;font-weight:800;">${escHtml(yr)} Academic Year</div>
+          <div style="font-size:13px;opacity:.9;">Class: <strong>${escHtml(clsForYear)}</strong></div>
+        </div>
+        <div style="padding:14px;">${termRows}</div>
+      </div>`;
+  }).join('');
+
+  const w = window.open('','_blank','width=900,height=800');
+  w.document.write(`<!DOCTYPE html><html><head>
+    <title>Academic Transcript — ${escHtml(name)}</title>
+    <style>
+      *{box-sizing:border-box;} body{font-family:Arial,sans-serif;padding:24px;color:#111;max-width:860px;margin:0 auto;}
+      table td,table th{border:1px solid #e5e7eb;}
+      @media print{button{display:none!important;}body{padding:8px;}}
+    </style></head><body>
+    <!-- Header -->
+    <div style="text-align:center;margin-bottom:20px;border-bottom:3px solid #1d4ed8;padding-bottom:16px;">
+      ${logoHtml}
+      <div style="font-size:20px;font-weight:900;color:#1d4ed8;margin-top:6px;">${escHtml(school.schoolName||'School')}</div>
+      ${school.address?`<div style="font-size:12px;color:#555;">${escHtml(school.address)}</div>`:''}
+      <div style="font-size:16px;font-weight:700;margin-top:8px;">FULL ACADEMIC TRANSCRIPT</div>
+    </div>
+    <!-- Student profile -->
+    <div style="display:flex;align-items:center;gap:18px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:16px;margin-bottom:20px;">
+      ${photoHtml}
+      <div>
+        <div style="font-size:20px;font-weight:900;">${escHtml(name)}</div>
+        <div style="font-size:13px;color:#555;margin-top:4px;">Current Class: <strong>${escHtml(student.cls||'—')}</strong></div>
+        <div style="font-size:12px;color:#64748b;margin-top:2px;">Admission No: ${escHtml(student.admNo||student.id?.toString()||'—')} &nbsp;·&nbsp; DOB: ${escHtml(student.dob||'—')}</div>
+        ${history ? `<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;">${history}</div>` : ''}
+      </div>
+    </div>
+    <!-- Year blocks -->
+    ${yearBlocks}
+    <!-- Footer -->
+    <div style="text-align:center;margin-top:24px;border-top:1px solid #e5e7eb;padding-top:16px;font-size:11px;color:#94a3b8;">
+      ${escHtml(school.schoolName||'School')} &middot; Generated ${new Date().toLocaleDateString('en-GH',{year:'numeric',month:'long',day:'numeric'})} &middot; EduManage Pro
+    </div>
+    <div style="text-align:center;margin-top:12px;">
+      <button onclick="window.print()" style="padding:10px 32px;background:#1d4ed8;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:700;">&#128424;&#65039; Print / Save as PDF</button>
+    </div>
+  </body></html>`);
+  w.document.close();
+}
+
+function switchPromoTab(tab) {
+  document.getElementById('promoPane1').style.display = tab===1 ? '' : 'none';
+  document.getElementById('promoPane2').style.display = tab===2 ? '' : 'none';
+  document.getElementById('promoTab1').style.background = tab===1 ? 'var(--blue)' : 'transparent';
+  document.getElementById('promoTab1').style.color      = tab===1 ? '#fff' : 'var(--text-muted)';
+  document.getElementById('promoTab2').style.background = tab===2 ? 'var(--blue)' : 'transparent';
+  document.getElementById('promoTab2').style.color      = tab===2 ? '#fff' : 'var(--text-muted)';
+  if (tab === 2) renderPromotionHistory();
 }
 
 function initPromotion() {
   document.getElementById('promoteFromClass').addEventListener('change', renderPromotionPreview);
+  renderPromotionHistory();
 }
 
 // ── PARENT SMS REMINDERS ──
@@ -4948,24 +5873,34 @@ function doEnrollAdmission(a) {
     showToast(`ℹ️ ${a.first} ${a.last} is already enrolled.`);
     return;
   }
+  if (!state.nextStudentUID) state.nextStudentUID = (state.nextStudentId || 1);
   const phone = a.guardPhone || a.fatherPhone || a.motherPhone || '';
+  const academicYear = state.settings.session || new Date().getFullYear() + '/' + (new Date().getFullYear() + 1);
   const newPupil = {
-    id: state.nextStudentId++,
-    first: a.first, last: a.last, cls: a.cls,
-    gender: a.gender, phone,
-    feeStatus: 'Unpaid',
-    photo: a.photo || null,
-    enrolledDate: a.date || new Date().toLocaleDateString('en-GH'),
+    id:              state.nextStudentId++,
+    uid:             generateStudentUID(),   // ← permanent ID
+    first:           a.first,
+    last:            a.last,
+    cls:             a.cls,
+    gender:          a.gender,
+    phone,
+    feeStatus:       'Unpaid',
+    photo:           a.photo || null,
+    status:          'active',
+    academicYear,
+    enrolledDate:    a.date || new Date().toLocaleDateString('en-GH'),
     admissionNumber: a.admNumber,
-    dob: a.dob || '',
+    dob:             a.dob || '',
+    ...auditCreate(),
   };
   state.students.push(newPupil);
   autoCreateFeeRecord(newPupil);
+  autoCreateStudentUser(newPupil);
   a.enrolled          = true;
   a.enrolledStudentId = newPupil.id;
   renderStudents();
   renderFees();
-  showToast(`🎉 ${a.first} ${a.last} admitted and added to Pupils!`);
+  showToast(`🎉 ${a.first} ${a.last} admitted and added to Pupils! ID: ${newPupil.uid}`);
 }
 
 function editAdmission(admId) {
@@ -5178,7 +6113,7 @@ function renderIDCards() {
   const buildCard = (person, type) => {
     const name   = `${person.first} ${person.last}`;
     const idNum  = type === 'pupil'
-      ? `GES-STU-${String(person.id).padStart(4,'0')}`
+      ? (person.uid || `GES-STU-${String(person.id).padStart(4,'0')}`)
       : `GES-TCH-${String(person.id).padStart(4,'0')}`;
     const typeLabel = type === 'pupil' ? 'STUDENT' : 'STAFF';
 
@@ -5260,7 +6195,7 @@ function printSingleIDCard(id, type) {
   const year     = school.session || new Date().getFullYear();
   const name     = `${person.first} ${person.last}`;
   const idNum    = type === 'pupil'
-    ? `GES-STU-${String(id).padStart(4,'0')}`
+    ? (person.uid || `GES-STU-${String(id).padStart(4,'0')}`)
     : `GES-TCH-${String(id).padStart(4,'0')}`;
   const typeLabel = type === 'pupil' ? 'STUDENT' : 'STAFF';
   const clsVal    = type === 'pupil' ? person.cls : (person.assigned || '—');
@@ -5851,24 +6786,61 @@ function attemptLogin() {
   }
 
   const proceed = () => {
-    const user = state.users.find(u =>
+    // Primary: check state.users (may be Firebase-loaded)
+    let user = state.users.find(u =>
       u.username && u.username.toLowerCase().trim() === username &&
       u.password && u.password.trim() === password &&
       u.active !== false
     );
+    // Fallback: if Firebase overwrote state.users with stale data, try localStorage copy
+    if (!user) {
+      try {
+        const localRaw = localStorage.getItem(schoolKey);
+        if (localRaw) {
+          const localData = JSON.parse(localRaw);
+          if (localData.users && localData.users.length) {
+            user = localData.users.find(u =>
+              u.username && u.username.toLowerCase().trim() === username &&
+              u.password && u.password.trim() === password &&
+              u.active !== false
+            );
+            // If local login works, restore local users to state (Firebase was stale)
+            if (user) {
+              state.users = localData.users;
+              console.log('[login] Firebase users stale — restored from localStorage');
+            }
+          }
+        }
+      } catch(e) {}
+    }
     if (!user) {
       recordLoginFail(schoolId);
       const tries = _loginAttempts[schoolId]?.count || 0;
       const left = LOGIN_MAX_TRIES - tries;
-      document.getElementById('loginErrorMsg').textContent = left <= 0
+      // Show hint: list usernames from local storage so admin isn't locked out
+      let hint = '';
+      try {
+        const localRaw = localStorage.getItem(schoolKey);
+        if (localRaw) {
+          const localData = JSON.parse(localRaw);
+          if (localData.users && localData.users.length) {
+            const names = localData.users.map(u => u.username).join(', ');
+            hint = '\nHint: Known usernames: ' + names;
+          }
+        }
+      } catch(e) {}
+      document.getElementById('loginErrorMsg').textContent = (left <= 0
         ? 'Too many failed attempts. Wait 30 seconds.'
-        : 'Wrong username or password. ' + left + ' attempt' + (left!==1?'s':'') + ' left.';
+        : 'Wrong username or password. ' + left + ' attempt' + (left!==1?'s':'') + ' left.') + hint;
       document.getElementById('loginError').style.display = 'block';
       resetBtn(); return;
     }
     resetLoginAttempts(schoolId);
     _currentSchoolKey = schoolKey;
     state.currentUser = user;
+    // Record last login time
+    user.lastLogin = new Date().toISOString();
+    autosave();
     // Save credentials if Remember Me is checked
     const rememberMe = document.getElementById('rememberMeCheck');
     if (rememberMe && rememberMe.checked) {
@@ -6256,6 +7228,43 @@ function initLogin() {
 }
 
 
+// Track whether passwords are globally revealed (requires Super Admin code)
+let _passwordsRevealed = false;
+
+function promptShowAllPasswords() {
+  if (_passwordsRevealed) {
+    // Already revealed — toggle back to hidden
+    _passwordsRevealed = false;
+    document.getElementById('showAllPasswordsBtn').innerHTML = '<i class="fas fa-eye"></i> Show All Passwords';
+    renderUsers();
+    return;
+  }
+  const code = prompt('Enter Super Admin Code to reveal all passwords:');
+  if (code === null) return;
+  if (code.trim() !== SUPER_ADMIN_CODE) {
+    showToast('\u26D4 Incorrect Super Admin Code.'); return;
+  }
+  _passwordsRevealed = true;
+  document.getElementById('showAllPasswordsBtn').innerHTML = '<i class="fas fa-eye-slash"></i> Hide Passwords';
+  renderUsers();
+  showToast('\uD83D\uDD13 Passwords revealed. Remember to hide them when done.');
+}
+
+function toggleSinglePassword(userId) {
+  const cell = document.getElementById('pwd-cell-' + userId);
+  if (!cell) return;
+  const u = state.users.find(u => u.id === userId);
+  if (!u) return;
+  const isHidden = cell.dataset.hidden === '1';
+  if (isHidden) {
+    cell.innerHTML = '<span style="font-family:monospace;background:var(--bg);padding:2px 8px;border-radius:5px;font-size:13px;letter-spacing:.5px;">' + escHtml(u.password) + '</span>';
+    cell.dataset.hidden = '0';
+  } else {
+    cell.innerHTML = '<span style="letter-spacing:3px;color:var(--text-light);">\u2022\u2022\u2022\u2022\u2022\u2022</span>';
+    cell.dataset.hidden = '1';
+  }
+}
+
 function renderUsers() {
   const tbody = document.getElementById('usersTbody');
   if (!tbody) return;
@@ -6266,18 +7275,35 @@ function renderUsers() {
   };
   tbody.innerHTML = state.users.map((u,i) => {
     const linkedPupil = u.linkedStudentId ? state.students.find(s=>s.id===u.linkedStudentId) : null;
-    const perms = (u.permissions||[]).join(', ') || '—';
+    const isRevealed  = _passwordsRevealed;
+    const pwdDisplay  = isRevealed
+      ? `<span style="font-family:monospace;background:var(--bg);padding:2px 8px;border-radius:5px;font-size:13px;letter-spacing:.5px;">${escHtml(u.password)}</span>`
+      : `<span style="letter-spacing:3px;color:var(--text-light);">\u2022\u2022\u2022\u2022\u2022\u2022</span>`;
+    const lastLogin = u.lastLogin
+      ? `<span style="font-size:11px;">${new Date(u.lastLogin).toLocaleDateString('en-GH')}<br><span style="color:var(--text-muted);font-size:10px;">${new Date(u.lastLogin).toLocaleTimeString('en-GH',{hour:'2-digit',minute:'2-digit'})}</span></span>`
+      : `<span style="color:var(--text-muted);font-size:11px;">Never</span>`;
+    const pwdChanged = u.pwdChangedAt
+      ? `<span style="font-size:10px;color:var(--text-muted);display:block;margin-top:2px;"><i class="fas fa-clock"></i> Changed ${new Date(u.pwdChangedAt).toLocaleDateString('en-GH')}</span>`
+      : '';
     return `<tr>
       <td>${i+1}</td>
       <td>
-        <strong>${u.name}</strong>
+        <strong>${escHtml(u.name)}</strong>
         ${u.autoCreated ? `<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:10px;font-size:10px;font-weight:700;margin-left:6px;">AUTO</span>` : ''}
-        ${linkedPupil ? `<br><small style="color:var(--blue);font-size:11px;"><i class="fas fa-link"></i> Linked: ${linkedPupil.first} ${linkedPupil.last}</small>` : ''}
+        ${linkedPupil ? `<br><small style="color:var(--blue);font-size:11px;"><i class="fas fa-link"></i> ${linkedPupil.first} ${linkedPupil.last}</small>` : ''}
       </td>
-      <td><code style="background:var(--bg);padding:2px 7px;border-radius:5px;font-size:12px;">${u.username}</code></td>
-      <td><span style="letter-spacing:2px;color:var(--text-light);font-size:13px;">••••••</span></td>
+      <td><code style="background:var(--bg);padding:2px 7px;border-radius:5px;font-size:12px;">${escHtml(u.username)}</code></td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div id="pwd-cell-${u.id}" data-hidden="${isRevealed?'0':'1'}">${pwdDisplay}</div>
+          <button class="tbl-btn" onclick="toggleSinglePassword(${u.id})" title="Show/hide password" style="padding:3px 7px;font-size:11px;">
+            <i class="fas fa-eye"></i>
+          </button>
+        </div>
+        ${pwdChanged}
+      </td>
       <td>${roleBadge(u.role)}</td>
-      <td style="font-size:11px;color:var(--text-muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;" title="${perms}">${perms}</td>
+      <td>${lastLogin}</td>
       <td><span class="status-pill ${u.active?'pill-paid':'pill-unpaid'}">${u.active?'Active':'Inactive'}</span></td>
       <td>
         <button class="tbl-btn" onclick="editUser(${u.id})" title="Edit"><i class="fas fa-edit"></i></button>
@@ -6334,7 +7360,7 @@ function saveUser() {
     u.name = name; u.username = username; u.role = role;
     u.linkedStudentId = linkedStudentId;
     u.permissions = permissions;
-    if (password) u.password = password;
+    if (password) { u.password = password; u.pwdChangedAt = new Date().toISOString(); }
     showToast(`✅ ${name} updated!`);
   } else {
     if (!password || password.length < 4) { showToast('⚠️ Password must be at least 4 characters.'); return; }
@@ -6353,8 +7379,10 @@ function resetUserPassword(id) {
   if (newPwd === null) return;
   if (newPwd.length < 4) { showToast('⚠️ Password too short — minimum 4 characters.'); return; }
   u.password = newPwd;
+  u.pwdChangedAt = new Date().toISOString();
   autosave();
-  showToast(`✅ Password reset for ${u.name}.`);
+  renderUsers();
+  showToast(`\u2705 Password reset for ${u.name}.`);
 }
 
 function toggleLinkedStudentField() {

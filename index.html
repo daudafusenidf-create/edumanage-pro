@@ -66,38 +66,68 @@
 
   <!-- ─── PASSWORD RECOVERY MODAL (Super Admin managed) ─── -->
   <div class="modal-overlay" id="recoveryRequestModal" style="z-index:10003;">
-    <div class="modal" style="max-width:440px;">
+    <div class="modal" style="max-width:460px;">
       <div class="modal-head">
-        <h3><i class="fas fa-key"></i> Forgot Username / Password?</h3>
+        <h3><i class="fas fa-key"></i> Account Recovery</h3>
         <button class="modal-close" onclick="document.getElementById('recoveryRequestModal').classList.remove('open')"><i class="fas fa-times"></i></button>
       </div>
       <div class="modal-body">
-        <div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:var(--blue);">
-          <i class="fas fa-info-circle"></i> Recovery requests are reviewed and resolved by the <strong>Super Admin</strong>. Submit your details below and you will be contacted.
+        <!-- Tab switcher -->
+        <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:16px;">
+          <button id="recTab1" onclick="switchRecoveryTab(1)" style="flex:1;padding:9px;font-size:13px;font-weight:700;background:var(--blue);color:#fff;border:none;cursor:pointer;">
+            <i class="fas fa-unlock-alt"></i> Emergency Access
+          </button>
+          <button id="recTab2" onclick="switchRecoveryTab(2)" style="flex:1;padding:9px;font-size:13px;font-weight:600;background:transparent;color:var(--text-muted);border:none;cursor:pointer;">
+            <i class="fas fa-paper-plane"></i> Contact Super Admin
+          </button>
         </div>
-        <div id="recoveryFormError" style="display:none;background:#fee2e2;color:#dc2626;border-radius:7px;padding:9px 13px;margin-bottom:12px;font-size:13px;"></div>
-        <div class="form-group">
-          <label>School Name <span style="color:var(--red)">*</span></label>
-          <input type="text" class="form-input" id="recSchoolName" placeholder="Enter your school name"/>
+
+        <!-- Tab 1: Emergency local recovery -->
+        <div id="recTabPane1">
+          <div style="background:#fff7e0;border:1px solid #f0c000;border-radius:8px;padding:10px 13px;margin-bottom:14px;font-size:13px;color:#7a5900;">
+            <i class="fas fa-exclamation-triangle"></i> Enter the <strong>Super Admin Code</strong> to reveal all stored usernames and passwords for this school.
+          </div>
+          <div class="form-group">
+            <label>Super Admin Code <span style="color:var(--red)">*</span></label>
+            <input type="password" class="form-input" id="recSuperCode" placeholder="Enter Super Admin Code"/>
+          </div>
+          <div id="recRevealResult" style="display:none;background:var(--bg-light);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:13px;"></div>
+          <div id="recLocalError" style="display:none;color:var(--red);font-size:13px;margin-top:8px;"></div>
         </div>
-        <div class="form-group">
-          <label>Admin's Full Name <span style="color:var(--red)">*</span></label>
-          <input type="text" class="form-input" id="recAdminName" placeholder="Your registered admin name"/>
-        </div>
-        <div class="form-group">
-          <label>Contact Phone <span style="color:var(--red)">*</span></label>
-          <input type="tel" class="form-input" id="recPhone" placeholder="e.g. 0244123456"/>
-        </div>
-        <div class="form-group">
-          <label>Recovery Type</label>
-          <select class="form-input" id="recType">
-            <option value="username">Forgot Username</option>
-            <option value="password">Forgot Password</option>
-            <option value="both">Forgot Both</option>
-          </select>
+
+        <!-- Tab 2: Contact Super Admin form -->
+        <div id="recTabPane2" style="display:none;">
+          <div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:var(--blue);">
+            <i class="fas fa-info-circle"></i> Recovery requests are reviewed by the <strong>Super Admin</strong>. Submit your details and you will be contacted.
+          </div>
+          <div id="recoveryFormError" style="display:none;background:#fee2e2;color:#dc2626;border-radius:7px;padding:9px 13px;margin-bottom:12px;font-size:13px;"></div>
+          <div class="form-group">
+            <label>School Name <span style="color:var(--red)">*</span></label>
+            <input type="text" class="form-input" id="recSchoolName" placeholder="Enter your school name"/>
+          </div>
+          <div class="form-group">
+            <label>Admin's Full Name <span style="color:var(--red)">*</span></label>
+            <input type="text" class="form-input" id="recAdminName" placeholder="Your registered admin name"/>
+          </div>
+          <div class="form-group">
+            <label>Contact Phone <span style="color:var(--red)">*</span></label>
+            <input type="tel" class="form-input" id="recPhone" placeholder="e.g. 0244123456"/>
+          </div>
+          <div class="form-group">
+            <label>Recovery Type</label>
+            <select class="form-input" id="recType">
+              <option value="username">Forgot Username</option>
+              <option value="password">Forgot Password</option>
+              <option value="both">Forgot Both</option>
+            </select>
+          </div>
         </div>
       </div>
-      <div class="modal-foot">
+      <div class="modal-foot" id="recModalFoot1">
+        <button class="btn-ghost" onclick="document.getElementById('recoveryRequestModal').classList.remove('open')">Cancel</button>
+        <button class="btn-primary" onclick="doEmergencyReveal()"><i class="fas fa-eye"></i> Reveal Credentials</button>
+      </div>
+      <div class="modal-foot" id="recModalFoot2" style="display:none;">
         <button class="btn-ghost" onclick="document.getElementById('recoveryRequestModal').classList.remove('open')">Cancel</button>
         <button class="btn-primary" onclick="submitRecoveryRequest()"><i class="fas fa-paper-plane"></i> Submit Request</button>
       </div>
@@ -682,6 +712,8 @@
         <div><h1 class="section-title">Pupils</h1><p class="section-sub">Manage all enrolled pupils — GES Standard</p></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn-ghost" onclick="downloadPupilsCSV()"><i class="fas fa-download"></i> Download CSV</button>
+          <button class="btn-ghost" id="promoteAllBtn" title="Promote all eligible pupils to next class (end of year)" style="color:var(--blue);border-color:var(--blue);"><i class="fas fa-arrow-up"></i> Promote All</button>
+          <button class="btn-ghost" onclick="showInactivePupils()" title="View removed/inactive pupils" style="color:var(--text-muted);"><i class="fas fa-archive"></i> Inactive</button>
           <button class="btn-primary" id="addStudentBtn"><i class="fas fa-plus"></i> Add Pupil</button>
         </div>
       </div>
@@ -984,49 +1016,66 @@
         </div>
       </div>
 
-      <!-- Fee Bill Generator Modal -->
-      <div class="modal-overlay" id="feeBillModal">
-        <div class="modal" style="max-width:680px;">
-          <div class="modal-head"><h3><i class="fas fa-file-invoice"></i> Fee Bill Generator</h3><button class="modal-close" id="closeFeeBillModal"><i class="fas fa-times"></i></button></div>
+      <!-- Class Fee Bill Generator Modal -->
+      <div class="modal-overlay" id="feeBillModal" style="z-index:10005;">
+        <div class="modal" style="max-width:780px;">
+          <div class="modal-head">
+            <h3><i class="fas fa-file-invoice" style="color:var(--blue);"></i> Generate Class Fee Bill</h3>
+            <button class="modal-close" id="closeFeeBillModal"><i class="fas fa-times"></i></button>
+          </div>
           <div class="modal-body">
-            <div class="form-row">
-              <div class="form-group" style="flex:1 1 100%;">
-                <label>Select Enrolled Pupil</label>
-                <select class="form-input" id="billStudentSelect" onchange="autoFillBillFromPupil(this.value)">
-                  <option value="">-- Select Pupil --</option>
-                </select>
+            <!-- Step 1: Class + Term + Year -->
+            <div style="background:var(--bg-light);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px;">
+              <div style="font-weight:700;font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">Step 1 — Select Class &amp; Term</div>
+              <div class="form-row" style="margin:0;gap:12px;">
+                <div class="form-group" style="margin:0;flex:2;">
+                  <label>Class <span style="color:var(--red)">*</span></label>
+                  <select class="form-input" id="billClass">
+                    <option value="">-- Select Class --</option>
+                  </select>
+                </div>
+                <div class="form-group" style="margin:0;flex:2;">
+                  <label>Term <span style="color:var(--red)">*</span></label>
+                  <select class="form-input" id="billTerm">
+                    <option>First Term</option><option>Second Term</option><option>Third Term</option>
+                  </select>
+                </div>
+                <div class="form-group" style="margin:0;flex:2;">
+                  <label>Academic Year</label>
+                  <input type="text" class="form-input" id="billYear" placeholder="e.g. 2025/2026"/>
+                </div>
               </div>
             </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label>Pupil Name</label>
-                <input type="text" class="form-input" id="billStudentName" placeholder="Or type manually"/>
+            <!-- Step 2: Fee Items -->
+            <div style="background:var(--bg-light);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px;">
+              <div style="font-weight:700;font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">Step 2 — Fee Items</div>
+              <div id="billItemsContainer">
+                <div class="bill-item-row">
+                  <input type="text" class="form-input bill-desc" placeholder="e.g. Tuition Fee"/>
+                  <input type="number" class="form-input bill-amt" placeholder="Amount (GH₵)" min="0"/>
+                  <button class="tbl-btn danger remove-bill-item"><i class="fas fa-minus"></i></button>
+                </div>
               </div>
-              <div class="form-group"><label>Class</label>
-                <input type="text" class="form-input" id="billClass" placeholder="Auto-filled from pupil"/>
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group"><label>Term</label><select class="form-input" id="billTerm"><option>First Term</option><option>Second Term</option><option>Third Term</option></select></div>
-              <div class="form-group"><label>Academic Year</label><input type="text" class="form-input" id="billYear" placeholder="e.g. 2024/2025"/></div>
-            </div>
-            <p style="font-weight:700;font-size:13px;margin:14px 0 8px;color:var(--text);">Fee Items</p>
-            <div id="billItemsContainer">
-              <div class="bill-item-row">
-                <input type="text" class="form-input bill-desc" placeholder="Description (e.g. Tuition Fee)"/>
-                <input type="number" class="form-input bill-amt" placeholder="Amount (GH₵)" min="0"/>
-                <button class="tbl-btn danger remove-bill-item"><i class="fas fa-minus"></i></button>
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;">
+                <button class="btn-ghost" id="addBillItemBtn" style="font-size:12px;padding:5px 12px;"><i class="fas fa-plus"></i> Add Item</button>
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span style="font-weight:700;color:var(--blue);font-size:13px;">Total:</span>
+                  <span style="font-size:20px;font-weight:800;color:var(--blue);" id="billTotalDisplay">GH₵ 0.00</span>
+                </div>
               </div>
             </div>
-            <button class="btn-ghost" id="addBillItemBtn" style="margin-top:8px;"><i class="fas fa-plus"></i> Add Item</button>
-            <div style="margin-top:14px;padding:12px;background:var(--blue-light);border-radius:var(--radius-sm);display:flex;justify-content:space-between;align-items:center;">
-              <span style="font-weight:700;color:var(--blue);">Total Amount Due</span>
-              <span style="font-size:20px;font-weight:800;color:var(--blue);" id="billTotalDisplay">GH₵ 0.00</span>
+            <!-- Step 3: Preview -->
+            <div style="background:var(--bg-light);border:1px solid var(--border);border-radius:8px;padding:12px 14px;">
+              <div style="font-weight:700;font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">Step 3 — Preview &amp; Apply</div>
+              <div id="billPreviewWrap">
+                <p style="text-align:center;color:var(--text-muted);font-size:13px;padding:16px 0;">Select a class to see the preview.</p>
+              </div>
             </div>
           </div>
           <div class="modal-foot">
             <button class="btn-ghost" id="cancelFeeBillModal">Cancel</button>
-            <button class="btn-primary" id="printBillBtn"><i class="fas fa-print"></i> Print Bill</button>
+            <button class="btn-ghost" id="printBillBtn" style="color:var(--blue);border-color:var(--blue);"><i class="fas fa-print"></i> Print Bills</button>
+            <button class="btn-primary" id="applyClassBillBtn"><i class="fas fa-bolt"></i> Apply to All Students in Class</button>
           </div>
         </div>
       </div>
@@ -1643,45 +1692,74 @@
     <!-- ─── STUDENT PROMOTION ─── -->
     <section class="section" id="sec-promotion">
       <div class="section-header">
-        <div><h1 class="section-title">Student Promotion</h1><p class="section-sub">Automatically promote pupils to the next class</p></div>
+        <div><h1 class="section-title">Student Promotion</h1><p class="section-sub">Promote pupils · History never lost</p></div>
+        <button class="btn-primary" onclick="promoteAllClasses()" style="background:var(--green);border-color:var(--green);"><i class="fas fa-layer-group"></i> Promote All Classes</button>
       </div>
-      <div class="dash-grid">
-        <div class="card">
-          <div class="card-head"><h2 class="card-title"><i class="fas fa-arrow-up"></i> Promote Class</h2></div>
-          <p class="card-desc" style="margin-bottom:16px;">Select a class to see all pupils and promote them automatically to the next class level.</p>
-          <div class="form-group">
-            <label>Select Class to Promote From</label>
-            <select class="form-input" id="promoteFromClass">
-              <option value="">-- Select Class --</option>
-              <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
-              <option>KG1</option><option>KG2</option>
-              <option>BS.1</option><option>BS.2</option><option>BS.3</option>
-              <option>BS.4</option><option>BS.5</option>
-              <option>BS.7</option><option>BS.8</option><option>BS.9</option>
-            </select>
-          </div>
-          <div id="promotionPreview" style="margin-top:16px;"></div>
-        </div>
-        <div class="card">
-          <div class="card-head"><h2 class="card-title"><i class="fas fa-info-circle"></i> Promotion Guide</h2></div>
-          <div style="font-size:13px;line-height:1.8;color:var(--text-muted);">
-            <p style="margin-bottom:10px;">The promotion order follows GES class structure:</p>
-            <div style="display:flex;flex-wrap:wrap;gap:6px;">
-              <span class="status-pill pill-partial">Creche</span><span>→</span>
-              <span class="status-pill pill-partial">Nursery 1</span><span>→</span>
-              <span class="status-pill pill-partial">Nursery 2</span><span>→</span>
-              <span class="status-pill pill-partial">KG1</span><span>→</span>
-              <span class="status-pill pill-partial">KG2</span><span>→</span>
-              <span class="status-pill pill-paid">BS.1</span><span>→</span>
-              <span class="status-pill pill-paid">BS.2</span><span>→</span>
-              <span class="status-pill pill-paid">BS.3</span><span>→</span>
-              <span class="status-pill pill-paid">BS.4</span><span>→</span>
-              <span class="status-pill pill-paid">BS.5</span><span>→</span>
-              <span class="status-pill pill-unpaid">BS.7</span><span>→</span>
-              <span class="status-pill pill-unpaid">BS.8</span><span>→</span>
-              <span class="status-pill pill-unpaid">BS.9</span>
+
+      <!-- Tabs -->
+      <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:18px;max-width:420px;">
+        <button id="promoTab1" onclick="switchPromoTab(1)" style="flex:1;padding:9px;font-size:13px;font-weight:700;background:var(--blue);color:#fff;border:none;cursor:pointer;"><i class="fas fa-arrow-up"></i> Promote Class</button>
+        <button id="promoTab2" onclick="switchPromoTab(2)" style="flex:1;padding:9px;font-size:13px;font-weight:600;background:transparent;color:var(--text-muted);border:none;cursor:pointer;"><i class="fas fa-history"></i> Promotion History</button>
+      </div>
+
+      <!-- Tab 1: Promote a single class -->
+      <div id="promoPane1">
+        <div class="dash-grid">
+          <div class="card">
+            <div class="card-head"><h2 class="card-title"><i class="fas fa-arrow-up"></i> Promote a Class</h2></div>
+            <p class="card-desc" style="margin-bottom:16px;">Select a class to preview and promote all pupils to the next level. Reports, fees and attendance are never touched.</p>
+            <div class="form-group">
+              <label>Select Class to Promote From</label>
+              <select class="form-input" id="promoteFromClass">
+                <option value="">-- Select Class --</option>
+                <option>Creche</option><option>Nursery 1</option><option>Nursery 2</option>
+                <option>KG1</option><option>KG2</option>
+                <option>BS.1</option><option>BS.2</option><option>BS.3</option>
+                <option>BS.4</option><option>BS.5</option>
+                <option>BS.7</option><option>BS.8</option><option>BS.9</option>
+              </select>
             </div>
-            <p style="margin-top:14px;color:var(--red);font-size:12px;"><i class="fas fa-exclamation-triangle"></i> Promotion updates all pupil records immediately. Please back up your data first.</p>
+            <div id="promotionPreview" style="margin-top:16px;"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2 class="card-title"><i class="fas fa-info-circle"></i> Promotion Guide</h2></div>
+            <div style="font-size:13px;line-height:1.8;color:var(--text-muted);">
+              <p style="margin-bottom:10px;">GES class progression order:</p>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                <span class="status-pill pill-partial">Creche</span><span>→</span>
+                <span class="status-pill pill-partial">Nursery 1</span><span>→</span>
+                <span class="status-pill pill-partial">Nursery 2</span><span>→</span>
+                <span class="status-pill pill-partial">KG1</span><span>→</span>
+                <span class="status-pill pill-partial">KG2</span><span>→</span>
+                <span class="status-pill pill-paid">BS.1</span><span>→</span>
+                <span class="status-pill pill-paid">BS.2</span><span>→</span>
+                <span class="status-pill pill-paid">BS.3</span><span>→</span>
+                <span class="status-pill pill-paid">BS.4</span><span>→</span>
+                <span class="status-pill pill-paid">BS.5</span><span>→</span>
+                <span class="status-pill pill-unpaid">BS.7</span><span>→</span>
+                <span class="status-pill pill-unpaid">BS.8</span><span>→</span>
+                <span class="status-pill pill-unpaid">BS.9</span>
+              </div>
+              <div style="margin-top:16px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:10px 12px;color:#166534;font-size:12px;">
+                <i class="fas fa-shield-alt"></i> <strong>Safe promotion:</strong> Only <code>student.class</code> changes. Reports, fees and attendance are linked to <em>year + term</em>, not to class — so nothing is lost.
+              </div>
+              <div style="margin-top:10px;background:var(--blue-light);border:1px solid rgba(59,130,246,.25);border-radius:8px;padding:10px 12px;color:var(--blue);font-size:12px;">
+                <i class="fas fa-bolt"></i> <strong>Promote All Classes</strong> button (top right) promotes the entire school in one click.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 2: Promotion history -->
+      <div id="promoPane2" style="display:none;">
+        <div class="card">
+          <div class="card-head">
+            <h2 class="card-title"><i class="fas fa-history"></i> Promotion History</h2>
+            <p style="font-size:12px;color:var(--text-muted);margin:0;">Every promotion is logged. Click the transcript icon to print a student's full academic history.</p>
+          </div>
+          <div id="promotionHistoryWrap" style="margin-top:12px;">
+            <p style="text-align:center;color:var(--text-muted);font-size:13px;padding:20px;">No promotion records yet.</p>
           </div>
         </div>
       </div>
@@ -1891,12 +1969,15 @@
     <section class="section" id="sec-users">
       <div class="section-header">
         <div><h1 class="section-title">User Management</h1><p class="section-sub">Admin & Teacher login accounts</p></div>
-        <button class="btn-primary" id="addUserBtn"><i class="fas fa-plus"></i> Add User</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-ghost" id="showAllPasswordsBtn" style="border-color:var(--blue);color:var(--blue);" onclick="promptShowAllPasswords()"><i class="fas fa-eye"></i> Show All Passwords</button>
+          <button class="btn-primary" id="addUserBtn"><i class="fas fa-plus"></i> Add User</button>
+        </div>
       </div>
       <div class="card">
         <div class="table-wrap">
           <table class="data-table">
-            <thead><tr><th>#</th><th>Name</th><th>Username</th><th>Password</th><th>Role</th><th>Permissions</th><th>Status</th><th>Actions</th></tr></thead>
+            <thead><tr><th>#</th><th>Name</th><th>Username</th><th>Password</th><th>Role</th><th>Last Login</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody id="usersTbody"></tbody>
           </table>
         </div>
