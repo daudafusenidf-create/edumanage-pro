@@ -1,9 +1,8 @@
+window._EDUMANAGE_VERSION = 'v2026.SYNC.FINAL.8';
 /* ════════════════════════════════════════
-   EduManage Pro — GES Edition
+   EduManage Pro - GES Edition
    Full Application Logic
-   VERSION: v2026.SYNC.FINAL.7
 ════════════════════════════════════════ */
-window._EDUMANAGE_VERSION = 'v2026.SYNC.FINAL.7';
 
 // ════════════════════════════════════════
 // MULTI-SCHOOL DATABASE ARCHITECTURE
@@ -45,7 +44,7 @@ let _fbListener     = null;
 let _fbPauseIncoming = false; // suppress onValue echo after we write
 let _fbPauseOutgoing = false; // block push during startup window
 let _fbDataLoaded   = false; // true only after we've confirmed our data is in sync with Firebase
-let _fbKnownSavedAt = 0;    // savedAt timestamp last seen on Firebase — never push older data than this
+let _fbKnownSavedAt = 0;    // savedAt timestamp last seen on Firebase - never push older data than this
 
 window.addEventListener('online',  () => { _isOnline = true;  showSyncStatus('online'); });
 window.addEventListener('offline', () => { _isOnline = false; showSyncStatus('offline'); });
@@ -59,7 +58,7 @@ function showSyncStatus(status) {
   if (!el) return;
   if (status === 'online')  { el.innerHTML = '<i class="fas fa-circle" style="color:#22c55e;font-size:8px;"></i> Synced'; el.style.color='#22c55e'; }
   if (status === 'offline') { el.innerHTML = '<i class="fas fa-circle" style="color:#f59e0b;font-size:8px;"></i> Offline'; el.style.color='#f59e0b'; }
-  if (status === 'saving')  { el.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size:9px;"></i> Saving…'; el.style.color='var(--text-muted)'; }
+  if (status === 'saving')  { el.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size:9px;"></i> Saving...'; el.style.color='var(--text-muted)'; }
 }
 
 function startRealtimeSync(schoolId) {
@@ -67,7 +66,7 @@ function startRealtimeSync(schoolId) {
   if (!window._fbReady) return;
   const dbRef = window._fb.ref(fbSchoolPath(schoolId));
   // In Firebase v10 modular SDK, onValue() returns an UNSUBSCRIBE function.
-  // We must store and call THAT — not the ref — to properly detach.
+  // We must store and call THAT - not the ref - to properly detach.
   _fbListener = window._fb.onValue(dbRef, (snap) => {
     if (!snap.exists() || !state.currentUser) return;
     const data = snap.val();
@@ -78,7 +77,7 @@ function startRealtimeSync(schoolId) {
     // Always mark as loaded when we receive any Firebase data
     if (!_fbDataLoaded) {
       _fbDataLoaded = true;
-      _fbKnownSavedAt = fbSavedAt; // FIX: real timestamp not Date.now()
+      _fbKnownSavedAt = fbSavedAt;
     }
     // Track highest savedAt seen from Firebase for subsequent syncs
     if (fbSavedAt > _fbKnownSavedAt) _fbKnownSavedAt = fbSavedAt;
@@ -86,7 +85,7 @@ function startRealtimeSync(schoolId) {
     if (_fbPauseIncoming) return; // suppress echo of our own write
     if (fbSavedAt <= localSavedAt) return; // Local is already up to date
 
-    // Firebase has newer data — apply it
+    // Firebase has newer data - apply it
     _fbKnownSavedAt = fbSavedAt;
     _applyDataToState(data);
     localStorage.setItem(getSchoolKey(schoolId), JSON.stringify(data));
@@ -135,7 +134,7 @@ async function loadRegistryFromFirebase() {
 
     const merged = [];
 
-    // Firebase registry is the source of truth — only use schools NOT in deletedIds
+    // Firebase registry is the source of truth - only use schools NOT in deletedIds
     const snap = await window._fb.get('registry');
     if (snap.exists()) {
       Object.values(snap.val()).forEach(s => {
@@ -163,7 +162,7 @@ async function loadSchoolDataFromFirebase(schoolId) {
   if (!window._fbReady) throw new Error('Firebase not ready');
   const snap = await window._fb.get(fbSchoolPath(schoolId));
   if (!snap.exists()) {
-    // Firebase has no data yet — this is a brand new school, safe to push local
+    // Firebase has no data yet - this is a brand new school, safe to push local
     _fbDataLoaded = true;
     throw new Error('No data in Firebase');
   }
@@ -173,7 +172,7 @@ async function loadSchoolDataFromFirebase(schoolId) {
   const fbSavedAt    = fbData.savedAt || 0;
 
   if (fbSavedAt >= localSavedAt) {
-    // Firebase is newer or equal — use Firebase as source of truth
+    // Firebase is newer or equal - use Firebase as source of truth
     localStorage.setItem(getSchoolKey(schoolId), JSON.stringify(fbData));
     loadSchoolData(getSchoolKey(schoolId));
     // FIX BUG 1: Use the real Firebase savedAt timestamp, not Date.now().
@@ -187,9 +186,9 @@ async function loadSchoolDataFromFirebase(schoolId) {
     _fbPauseOutgoing = false;
     return fbData;
   } else {
-    // Local is genuinely newer — load it and allow push on next real user action
+    // Local is genuinely newer - load it and allow push on next real user action
     loadSchoolData(getSchoolKey(schoolId));
-    _fbKnownSavedAt = localSavedAt; // use local timestamp — it's the newer source
+    _fbKnownSavedAt = localSavedAt; // use local timestamp - it's the newer source
     _fbDataLoaded = true;
     _fbPauseOutgoing = false; // FIX BUG 2: always clear the outgoing pause after load
     return fbData;
@@ -272,7 +271,7 @@ async function submitSchoolRegistration(name, adminName, adminUser, adminPass, p
       status: 'pending'
     }).catch(()=>{});
   } else {
-    // Offline: save locally as pending — user will need internet to get approved
+    // Offline: save locally as pending - user will need internet to get approved
     localStorage.setItem('pending_reg_' + schoolId, JSON.stringify({
       schoolId, schoolName: name, adminUser, status: 'pending', schoolData: freshData
     }));
@@ -337,7 +336,7 @@ async function rejectSchool(schoolId) {
 async function renderPendingSchoolsList() {
   const listEl = document.getElementById('pendingSchoolsList');
   if (!listEl) return;
-  listEl.innerHTML = '<p style="text-align:center;padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading…</p>';
+  listEl.innerHTML = '<p style="text-align:center;padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading...</p>';
 
   // Load ALL registrations (pending + approved history), not just pending
   let allRegs = [];
@@ -372,13 +371,13 @@ async function renderPendingSchoolsList() {
         <div style="flex:1;">
           <div style="font-weight:700;font-size:15px;">${escHtml(s.schoolName)}</div>
           <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
-            Admin: <strong>${escHtml(s.adminName||s.adminUser||'—')}</strong>
+            Admin: <strong>${escHtml(s.adminName||s.adminUser||'-')}</strong>
           </div>
           ${s.contactPhone ? `<div style="font-size:12px;color:var(--text-muted);">📞 ${escHtml(s.contactPhone)}</div>` : ''}
           <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Submitted: ${new Date(s.requestedAt).toLocaleString('en-GH')}</div>
           <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:9px 12px;margin-top:10px;font-size:13px;">
-            <div><i class="fas fa-user" style="color:#16a34a;width:16px;"></i> <strong>Username:</strong> <code style="background:#dcfce7;padding:2px 8px;border-radius:5px;">${escHtml(cred.username||s.adminUser||'—')}</code></div>
-            <div style="margin-top:5px;"><i class="fas fa-lock" style="color:#16a34a;width:16px;"></i> <strong>Password:</strong> <code style="background:#dcfce7;padding:2px 8px;border-radius:5px;">${escHtml(cred.password||'—')}</code></div>
+            <div><i class="fas fa-user" style="color:#16a34a;width:16px;"></i> <strong>Username:</strong> <code style="background:#dcfce7;padding:2px 8px;border-radius:5px;">${escHtml(cred.username||s.adminUser||'-')}</code></div>
+            <div style="margin-top:5px;"><i class="fas fa-lock" style="color:#16a34a;width:16px;"></i> <strong>Password:</strong> <code style="background:#dcfce7;padding:2px 8px;border-radius:5px;">${escHtml(cred.password||'-')}</code></div>
           </div>
         </div>
       </div>
@@ -440,7 +439,7 @@ async function saRegisterSchool() {
   }
 
   btn.disabled = true;
-  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Registering…';
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Registering...';
 
   try {
     const schoolId  = 'school_' + Date.now();
@@ -545,7 +544,7 @@ function switchSATab(tab) {
 async function renderAllSchoolCredentials() {
   const el = document.getElementById('credentialsList');
   if (!el) return;
-  el.innerHTML = '<p style="text-align:center;padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading…</p>';
+  el.innerHTML = '<p style="text-align:center;padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading...</p>';
   if (!window._fbReady || !_isOnline) { el.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;">Internet required.</p>'; return; }
   try {
     const snap = await window._fb.get('school_credentials');
@@ -577,7 +576,7 @@ async function renderAllSchoolCredentials() {
           <div style="font-size:24px;">${isArchived ? '🗂️' : '🏫'}</div>
           <div style="flex:1;">
             <div style="font-weight:700;font-size:15px;">${escHtml(c.schoolName)}</div>
-            <div style="font-size:12px;color:var(--text-muted);">Admin: ${escHtml(c.adminName||'—')}${c.contactPhone ? ' · 📞 '+escHtml(c.contactPhone) : ''}</div>
+            <div style="font-size:12px;color:var(--text-muted);">Admin: ${escHtml(c.adminName||'-')}${c.contactPhone ? ' · 📞 '+escHtml(c.contactPhone) : ''}</div>
             <div style="font-size:11px;color:var(--text-muted);">Registered: ${new Date(c.registeredAt).toLocaleString('en-GH')}</div>
           </div>
           <span style="background:${statusBg};border:1px solid ${statusBorder};color:${statusColor};padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;">${statusLabel}</span>
@@ -645,14 +644,14 @@ function doEmergencyReveal() {
 
   const rows = users.map(u =>
     '<tr style="border-bottom:1px solid var(--border);">'
-    + '<td style="padding:7px 10px;font-weight:700;">' + escHtml(u.username||'—') + '</td>'
-    + '<td style="padding:7px 10px;font-family:monospace;">' + escHtml(u.password||'—') + '</td>'
-    + '<td style="padding:7px 10px;">' + escHtml(u.role||'—') + '</td>'
-    + '<td style="padding:7px 10px;font-size:11px;color:var(--text-muted);">' + escHtml(u.name||'—') + '</td>'
+    + '<td style="padding:7px 10px;font-weight:700;">' + escHtml(u.username||'-') + '</td>'
+    + '<td style="padding:7px 10px;font-family:monospace;">' + escHtml(u.password||'-') + '</td>'
+    + '<td style="padding:7px 10px;">' + escHtml(u.role||'-') + '</td>'
+    + '<td style="padding:7px 10px;font-size:11px;color:var(--text-muted);">' + escHtml(u.name||'-') + '</td>'
     + '</tr>'
   ).join('');
 
-  resEl.innerHTML = '<div style="font-weight:700;color:var(--green);margin-bottom:8px;"><i class="fas fa-check-circle"></i> Credentials found — copy these now</div>'
+  resEl.innerHTML = '<div style="font-weight:700;color:var(--green);margin-bottom:8px;"><i class="fas fa-check-circle"></i> Credentials found - copy these now</div>'
     + '<table style="width:100%;border-collapse:collapse;font-size:13px;">'
     + '<thead><tr style="background:var(--bg);">'
     +   '<th style="padding:6px 10px;text-align:left;font-size:11px;color:var(--text-muted);">USERNAME</th>'
@@ -692,7 +691,7 @@ async function submitRecoveryRequest() {
 async function renderRecoveryRequests() {
   const el = document.getElementById('recoveryRequestsList');
   if (!el) return;
-  el.innerHTML = '<p style="text-align:center;padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading…</p>';
+  el.innerHTML = '<p style="text-align:center;padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading...</p>';
   if (!window._fbReady || !_isOnline) { el.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;">Internet required.</p>'; return; }
   try {
     const snap = await window._fb.get('recovery_requests');
@@ -757,7 +756,7 @@ async function dismissRecovery(reqId) {
 async function renderDeleteRequests() {
   const el = document.getElementById('deleteRequestsList');
   if (!el) return;
-  el.innerHTML = '<p style="text-align:center;padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading…</p>';
+  el.innerHTML = '<p style="text-align:center;padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading...</p>';
   if (!window._fbReady || !_isOnline) { el.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;">Internet required.</p>'; return; }
   try {
     const snap = await window._fb.get('archives');
@@ -838,7 +837,7 @@ function saveToDB() {
     // 1. Always save locally first
     localStorage.setItem(_currentSchoolKey, JSON.stringify(data));
 
-    // 2. Push to Firebase — guards:
+    // 2. Push to Firebase - guards:
     //    _fbDataLoaded: we must have loaded from Firebase first this session
     //    savedAt > _fbKnownSavedAt: only push if we loaded data before this moment
     //    (on fresh page load _fbKnownSavedAt=0, so we wait until loadSchoolDataFromFirebase
@@ -846,19 +845,22 @@ function saveToDB() {
     if (window._fbReady && _isOnline && _fbDataLoaded && state.currentUser) {
       const schoolId = _currentSchoolKey.replace('edumanage_school_', '');
       showSyncStatus('saving');
-      _fbPauseIncoming = true;
-      _fbKnownSavedAt = savedAt;
+      _fbPauseIncoming = true; // suppress our own echo
+      _fbKnownSavedAt = savedAt; // Update our known timestamp immediately
       window._fb.set(fbSchoolPath(schoolId), data)
         .then(() => {
           showSyncStatus('online');
-          markSaved();
+          markSaved(); // Only mark as saved once Firebase confirms
+          // FIX BUG 3: Extended from 2000ms to 5000ms - on slow connections the
+          // Firebase echo arrived after 2s, triggering an overwrite of fresh data.
           setTimeout(() => { _fbPauseIncoming = false; }, 5000);
         })
-        .catch(function(e) {
+        .catch(e => {
           console.warn('[FB] Save to Firebase failed:', e);
           _fbPauseIncoming = false;
+          _fbKnownSavedAt = savedAt - 1; // Roll back so next save retries
           showSyncStatus('offline');
-          showToast('\u26a0\ufe0f Cloud save failed \u2014 data saved locally only.');
+          showToast('⚠️ Cloud save failed - data saved locally only.');
         });
     }
 
@@ -874,8 +876,7 @@ function saveToDB() {
 function _loadReports(data) {
   if (data.reports !== undefined) state.reports = data.reports;
   if (data._reportsDict !== undefined) state._reportsDict = data._reportsDict;
-  if (state.reports && state.reports.length &&
-      (!state._reportsDict || !Object.keys(state._reportsDict).length)) {
+  if (state.reports && state.reports.length && (!state._reportsDict || !Object.keys(state._reportsDict).length)) {
     state._reportsDict = {};
     state.reports.forEach(function(r) {
       if (!r || !r.studentId) return;
@@ -967,7 +968,7 @@ let _saveTimer = null;
 function markUnsaved() {
   _unsavedChanges = true;
   const ind = document.getElementById('autosaveIndicator');
-  if (ind) { ind.textContent = '⏳ Saving…'; ind.style.opacity='1'; ind.style.color='var(--yellow)'; }
+  if (ind) { ind.textContent = '⏳ Saving...'; ind.style.opacity='1'; ind.style.color='var(--yellow)'; }
   const banner = document.getElementById('unsavedBanner');
   if (banner) banner.style.display = 'block';
 }
@@ -1001,7 +1002,7 @@ function saveNow() {
 
 // ── PAGE LEAVE PROTECTION ──
 function initPageLeaveProtection() {
-  // Warn on refresh / close — always try to save first
+  // Warn on refresh / close - always try to save first
   window.addEventListener('beforeunload', (e) => {
     if (_currentSchoolKey) saveNow(); // always attempt to save
     if (_unsavedChanges) {
@@ -1159,7 +1160,7 @@ function gesGradeFromScore(s) {
 
 // ════════════════════════════════════════
 // PERMANENT STUDENT ID SYSTEM
-// Format: STU-00001 … STU-99999
+// Format: STU-00001 ... STU-99999
 // Once assigned this ID never changes,
 // even if name / class / phone changes.
 // ════════════════════════════════════════
@@ -1285,7 +1286,7 @@ function autoFillFeeFromPupil(pupilId) {
   const term = document.getElementById('fTerm')?.value || state.settings.term || 'First Term';
   const year = state.settings.session || '';
 
-  // ── Auto-fill fee from structure table (read-only — teachers cannot override) ──
+  // ── Auto-fill fee from structure table (read-only - teachers cannot override) ──
   const structAmt = getFeeFromStructure(p.cls, term, year);
   const fDueEl = document.getElementById('fDue');
   const fDueNotice = document.getElementById('fDueStructureNotice');
@@ -1295,7 +1296,7 @@ function autoFillFeeFromPupil(pupilId) {
     fDueEl.style.background = 'var(--bg-light)';
     fDueEl.style.color = 'var(--text-muted)';
     fDueEl.style.cursor = 'not-allowed';
-    fDueEl.title = 'Set in Fee Structure — cannot be changed here';
+    fDueEl.title = 'Set in Fee Structure - cannot be changed here';
     if (fDueNotice) fDueNotice.style.display = 'block';
   } else {
     fDueEl.readOnly = false;
@@ -1304,7 +1305,7 @@ function autoFillFeeFromPupil(pupilId) {
     fDueEl.style.cursor = '';
     fDueEl.title = '';
     if (fDueNotice) fDueNotice.style.display = 'none';
-    // No structure set — warn admin
+    // No structure set - warn admin
     showToast('⚠️ No fee set for ' + p.cls + ' · ' + term + '. Set it in Fee Structure first.');
   }
 
@@ -1316,7 +1317,7 @@ function autoFillFeeFromPupil(pupilId) {
     if (structAmt !== null) fDueEl.value = structAmt;
     else fDueEl.value = existing.due;
     _feePaymentDraft = existing.payments ? [...existing.payments]
-                     : (existing.paid>0 ? [{amt:existing.paid, date:existing.createdAt?.slice(0,10)||new Date().toISOString().slice(0,10), note:'', method:'Cash', receiptNo:'—'}] : []);
+                     : (existing.paid>0 ? [{amt:existing.paid, date:existing.createdAt?.slice(0,10)||new Date().toISOString().slice(0,10), note:'', method:'Cash', receiptNo:'-'}] : []);
     const arrEl = document.getElementById('fArrearsRow');
     if (arrEl) {
       const arrears = existing.arrears || 0;
@@ -1395,9 +1396,9 @@ function checkAndLoadExistingReport(studentId, studentName) {
     if (notice) {
       notice.style.display = 'block';
       const noticeText = notice.querySelector('#rExistingNoticeText') || notice.querySelector('span');
-      if (noticeText) noticeText.textContent = `An existing report was found for ${studentName} — ${term} ${year}. Scores have been loaded. Click Update Report Card to save changes.`;
+      if (noticeText) noticeText.textContent = `An existing report was found for ${studentName} - ${term} ${year}. Scores have been loaded. Click Update Report Card to save changes.`;
     }
-    showToast(`📋 Existing report loaded for ${studentName} — ${term}`);
+    showToast(`📋 Existing report loaded for ${studentName} - ${term}`);
   } else {
     // Clear scores for fresh entry
     _addedSubjects = []; renderSubjectRows();
@@ -1448,7 +1449,7 @@ function initNav() {
 }
 
 function switchSection(name) {
-  // RBAC GUARD — verify access before showing any section
+  // RBAC GUARD - verify access before showing any section
   if (state.currentUser && !guardSection(name)) return;
 
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -1534,7 +1535,7 @@ function updateDashStats() {
       el('dashAttToday').textContent = rate + '%';
       if (el('dashAttLabel')) el('dashAttLabel').textContent = `${state.attendance.length} records`;
     } else {
-      el('dashAttToday').textContent = '—';
+      el('dashAttToday').textContent = '-';
       if (el('dashAttLabel')) el('dashAttLabel').textContent = 'No data yet';
     }
   }
@@ -1564,7 +1565,7 @@ function updateDashLiveSummary() {
   const attRate = attRecords ? Math.round(presentRec / attRecords * 100) : null;
   const reports = (state.reports || []).length;
   const term = state.settings.term || 'Current Term';
-  const session = state.settings.session || '—';
+  const session = state.settings.session || '-';
 
   const now = new Date();
   if (document.getElementById('dashLastRefresh')) {
@@ -1580,7 +1581,7 @@ function updateDashLiveSummary() {
         <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${state.classes.length} classes &nbsp;·&nbsp; ${state.teachers.length} teachers</div>
       </div>
       <div style="background:#f0fdf4;border-radius:10px;padding:12px;">
-        <div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;margin-bottom:6px;"><i class="fas fa-coins"></i> Fees — ${term}</div>
+        <div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;margin-bottom:6px;"><i class="fas fa-coins"></i> Fees - ${term}</div>
         <div><strong style="font-size:18px;color:var(--green);">${fmt(totalPaid)}</strong> collected</div>
         <div style="font-size:12px;margin-top:3px;">
           <span style="color:var(--green);">✅ ${paid} paid</span> &nbsp;
@@ -1806,7 +1807,7 @@ function renderStudents(filter='', cls='') {
       <td><div style="display:flex;align-items:center;">${photoHtml}<div><strong>${name}</strong>${uidBadge}</div></div></td>
       <td><span class="status-pill" style="background:var(--blue-light);color:var(--blue);font-size:11px;">${s.cls}</span></td>
       <td>${s.gender}</td>
-      <td>${s.phone||'—'}</td>
+      <td>${s.phone||'-'}</td>
       <td>${statusPill(liveFeeStatus)}${feeNote}</td>
       <td>
         <button class="tbl-btn" onclick="editStudent(${s.id})" title="Edit Pupil"><i class="fas fa-edit"></i></button>
@@ -2177,7 +2178,7 @@ function restoreStudent(id) {
 function initStudentPhotoUpload() {
   document.getElementById('sPhotoInput').addEventListener('change', function(e) {
     var file = e.target.files[0]; if (!file) return;
-    if (!file.type.startsWith('image/')) { showToast('\u26a0\ufe0f Select an image file.'); return; }
+    if (!file.type.startsWith('image/')) { showToast('Select an image file.'); return; }
     var prev = document.getElementById('sPhotoPreview');
     var reader = new FileReader();
     reader.onload = function(ev) {
@@ -2231,7 +2232,7 @@ function renderSubjectRows() {
       <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center;">
         <input type="number" min="0" max="50" placeholder="Class Score /50" class="form-input cls-score" data-subject="${sub}" style="font-size:13px;"/>
         <input type="number" min="0" max="50" placeholder="Exam Score /50" class="form-input exam-score" data-subject="${sub}" style="font-size:13px;"/>
-        <span id="subj_total_${rowId}" style="font-size:13px;font-weight:700;color:var(--blue);min-width:38px;text-align:center;">—</span>
+        <span id="subj_total_${rowId}" style="font-size:13px;font-weight:700;color:var(--blue);min-width:38px;text-align:center;">-</span>
       </div>
       <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">Class Score (50%) + Exam Score (50%) = Total /100</div>
     </div>`;
@@ -2247,15 +2248,15 @@ function renderSubjectRows() {
       const tot = Math.min(cs,50) + Math.min(es,50);
       const totEl = document.getElementById('subj_total_' + rowId);
       if (totEl) {
-        totEl.textContent = (cs > 0 || es > 0) ? tot : '—';
+        totEl.textContent = (cs > 0 || es > 0) ? tot : '-';
         const g = gesGradeFromScore(tot);
         totEl.style.color = tot >= 80 ? 'var(--green)' : tot >= 50 ? 'var(--blue)' : 'var(--red)';
-        totEl.title = `Grade ${g.grade} — ${g.remark}`;
+        totEl.title = `Grade ${g.grade} - ${g.remark}`;
       }
     });
   });
 
-  // Refresh picker — grey out already-added subjects
+  // Refresh picker - grey out already-added subjects
   refreshSubjectPicker();
 }
 
@@ -2345,14 +2346,14 @@ function generateGESReportCard(editIndex) {
   const cls = document.getElementById('rClass').value;
   const term = document.getElementById('rTerm').value;
   const year = document.getElementById('rYear').value || state.settings.session;
-  const classSize = document.getElementById('rClassSize').value || '—';
-  const position = document.getElementById('rPosition').value || '—';
-  const daysPresent = document.getElementById('rDaysPresent').value || '—';
-  const totalDays = document.getElementById('rTotalDays').value || '—';
-  const nextTerm = document.getElementById('rNextTerm').value || '—';
+  const classSize = document.getElementById('rClassSize').value || '-';
+  const position = document.getElementById('rPosition').value || '-';
+  const daysPresent = document.getElementById('rDaysPresent').value || '-';
+  const totalDays = document.getElementById('rTotalDays').value || '-';
+  const nextTerm = document.getElementById('rNextTerm').value || '-';
   const remark = document.getElementById('rRemark').value || 'Keep up the good work!';
   const hmRemark = document.getElementById('rHMRemark').value || 'Promoted to the next class.';
-  const interest = document.getElementById('rInterest').value || '—';
+  const interest = document.getElementById('rInterest').value || '-';
   const conduct = document.getElementById('rConduct').value;
   const settings = state.settings;
 
@@ -2417,7 +2418,7 @@ function generateGESReportCard(editIndex) {
         <div class="rc-subtitle">${settings.address||''}</div>
         ${settings.district?`<div class="rc-subtitle">${settings.district}</div>`:''}
         ${settings.motto?`<div class="rc-subtitle" style="font-style:italic;">Motto: ${settings.motto}</div>`:''}
-        <div class="rc-term-badge">${term.toUpperCase()} — ${year}</div>
+        <div class="rc-term-badge">${term.toUpperCase()} - ${year}</div>
       </div>
       <div class="rc-photo-wrap">${photoHtml}</div>
     </div>
@@ -2448,7 +2449,7 @@ function generateGESReportCard(editIndex) {
       </tfoot>
     </table>
     <div class="rc-avg-row">
-      <span class="rc-avg-pill ${avgCls}"><i class="fas fa-chart-bar"></i> Average: ${avg}/100 — Grade ${avgGrade} · ${avgRemark}</span>
+      <span class="rc-avg-pill ${avgCls}"><i class="fas fa-chart-bar"></i> Average: ${avg}/100 - Grade ${avgGrade} · ${avgRemark}</span>
       <span class="rc-rank-pill"><i class="fas fa-trophy"></i> Class Rank: ${rankDisplay}</span>
     </div>
     <div class="rc-conduct-row">
@@ -2476,7 +2477,7 @@ function generateGESReportCard(editIndex) {
   document.getElementById('reportCardOutput').scrollIntoView({behavior:'smooth'});
 
   // Full data saved for edit capability
-  // Resolve studentId — prefer the dropdown selection (most reliable)
+  // Resolve studentId - prefer the dropdown selection (most reliable)
   const selectedPupilIdRaw = document.getElementById('rStudentSelect')?.value;
   const selectedPupilId = selectedPupilIdRaw ? parseInt(selectedPupilIdRaw) : null;
   const resolvedStudent = selectedPupilId
@@ -2512,7 +2513,7 @@ function generateGESReportCard(editIndex) {
     }
   }
 
-  // Fallback: search by studentId+term+year (strict — never match by name alone when studentId is known)
+  // Fallback: search by studentId+term+year (strict - never match by name alone when studentId is known)
   if (existingIdx === -1) {
     existingIdx = state.reports.findIndex(r => {
       if (studentId) {
@@ -2532,10 +2533,10 @@ function generateGESReportCard(editIndex) {
     document.getElementById('cancelEditReportBtn').style.display = 'none';
     const notice = document.getElementById('rExistingNotice');
     if (notice) notice.style.display='none';
-    showToast(`✅ Report updated for ${name} — ${term}!`);
+    showToast(`✅ Report updated for ${name} - ${term}!`);
   } else {
     state.reports.push(reportData);
-    showToast(`✅ Report saved for ${name} — ${term}! Select the next student to continue.`);
+    showToast(`✅ Report saved for ${name} - ${term}! Select the next student to continue.`);
   }
   // Sync to clean saveReport() helper (doc-spec API)
   if (studentId) saveReport(studentId, term, year, reportData);
@@ -2624,7 +2625,7 @@ function renderSavedReports() {
         <div class="saved-report-item" style="border-bottom:1px solid var(--border);border-radius:0;">
           <div class="sr-info">
             <span class="sr-name" style="font-size:13px;">${r.term} &nbsp;·&nbsp; ${r.year}</span>
-            <span class="sr-meta">Avg: ${r.avg}/100 &nbsp;·&nbsp; Grade ${r.avgGrade} — ${r.avgRemark} &nbsp;·&nbsp; ${r.date}</span>
+            <span class="sr-meta">Avg: ${r.avg}/100 &nbsp;·&nbsp; Grade ${r.avgGrade} - ${r.avgRemark} &nbsp;·&nbsp; ${r.date}</span>
           </div>
           <div style="display:flex;gap:5px;flex-shrink:0;">
             <button class="tbl-btn" onclick="editReport(${r._idx})"><i class="fas fa-edit"></i></button>
@@ -2665,11 +2666,11 @@ function buildTranscriptHtml(reports, title) {
     const subs = (r.subjects||[]).map(s=>`
       <tr>
         <td style="padding:5px 8px;">${s.name}</td>
-        <td style="text-align:center;padding:5px;">${s.cls||'—'}</td>
-        <td style="text-align:center;padding:5px;">${s.exam||'—'}</td>
-        <td style="text-align:center;padding:5px;font-weight:700;">${s.total||'—'}</td>
-        <td style="text-align:center;padding:5px;">${s.grade||'—'}</td>
-        <td style="padding:5px;">${s.remark||'—'}</td>
+        <td style="text-align:center;padding:5px;">${s.cls||'-'}</td>
+        <td style="text-align:center;padding:5px;">${s.exam||'-'}</td>
+        <td style="text-align:center;padding:5px;font-weight:700;">${s.total||'-'}</td>
+        <td style="text-align:center;padding:5px;">${s.grade||'-'}</td>
+        <td style="padding:5px;">${s.remark||'-'}</td>
       </tr>`).join('');
 
     // Find pupil photo
@@ -2686,7 +2687,7 @@ function buildTranscriptHtml(reports, title) {
           <div>
             <div style="font-size:17px;font-weight:800;">${r.name}</div>
             <div style="font-size:12px;opacity:0.85;">${r.cls} &nbsp;·&nbsp; ${r.term} &nbsp;·&nbsp; ${r.year}</div>
-            <div style="font-size:11px;opacity:0.7;margin-top:2px;">Position: ${r.position||'—'}/${r.classSize||'—'} &nbsp;·&nbsp; Attendance: ${r.daysPresent||'—'}/${r.totalDays||'—'} days</div>
+            <div style="font-size:11px;opacity:0.7;margin-top:2px;">Position: ${r.position||'-'}/${r.classSize||'-'} &nbsp;·&nbsp; Attendance: ${r.daysPresent||'-'}/${r.totalDays||'-'} days</div>
           </div>
           <div style="margin-left:auto;text-align:right;">
             <div style="font-size:22px;font-weight:900;">${r.avg}<span style="font-size:13px;font-weight:400;">/100</span></div>
@@ -2781,7 +2782,7 @@ function openPrintReportModal(pupilName) {
       ${allReports.map(r => `
         <label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer;">
           <input type="checkbox" class="prm-check" value="${state.reports.indexOf(r)}" data-term="${r.term}" checked style="width:16px;height:16px;"/>
-          <span style="font-size:13px;"><strong>${r.term}</strong> — ${r.year} &nbsp; <span style="color:var(--text-muted);">Avg: ${r.avg}/100 · Grade ${r.avgGrade}</span></span>
+          <span style="font-size:13px;"><strong>${r.term}</strong> - ${r.year} &nbsp; <span style="color:var(--text-muted);">Avg: ${r.avg}/100 · Grade ${r.avgGrade}</span></span>
         </label>`).join('')}
     </div>`;
 
@@ -2815,8 +2816,8 @@ function executePrintReportModal() {
   const reports = indices.map(i => state.reports[i]).filter(Boolean)
     .sort((a,b) => (TERM_ORDER[a.term]||0) - (TERM_ORDER[b.term]||0));
   const pupilName = document.getElementById('printReportPupilName')?.textContent || '';
-  const termLabel = reports.length === 1 ? reports[0].term : `${reports[0].term} – ${reports[reports.length-1].term}`;
-  const title = `Academic Transcript — ${pupilName} (${termLabel})`;
+  const termLabel = reports.length === 1 ? reports[0].term : `${reports[0].term} - ${reports[reports.length-1].term}`;
+  const title = `Academic Transcript - ${pupilName} (${termLabel})`;
   document.getElementById('printReportModal').classList.remove('open');
   const w = window.open('','_blank','width=960,height=750');
   w.document.write(buildTranscriptHtml(reports, title));
@@ -2829,7 +2830,7 @@ function printPupilAllTerms(pupilName) {
     .filter(r => r.name === pupilName)
     .sort((a,b) => (TERM_ORDER[a.term]||0) - (TERM_ORDER[b.term]||0));
   if (!allReports.length) { showToast('No reports found for ' + pupilName); return; }
-  const title = `Academic Transcript — ${pupilName} (All Terms)`;
+  const title = `Academic Transcript - ${pupilName} (All Terms)`;
   const w = window.open('','_blank','width=960,height=750');
   w.document.write(buildTranscriptHtml(allReports, title));
   w.document.close();
@@ -2840,7 +2841,7 @@ function printTranscript() {
   if (!data.length) { showToast('⚠️ No reports match current filters.'); return; }
   const termF = document.getElementById('reportTermFilter')?.value || 'All Terms';
   const clsF  = document.getElementById('reportClassFilter')?.value || 'All Classes';
-  const title = `Academic Transcript — ${clsF} — ${termF} (${data.length} pupil${data.length!==1?'s':''})`;
+  const title = `Academic Transcript - ${clsF} - ${termF} (${data.length} pupil${data.length!==1?'s':''})`;
   const w = window.open('','_blank','width=960,height=750');
   w.document.write(buildTranscriptHtml(data, title));
   w.document.close();
@@ -2848,7 +2849,7 @@ function printTranscript() {
 
 function printSingleTranscript(idx) {
   const r = state.reports[idx]; if (!r) return;
-  const title = `Academic Transcript — ${r.name} — ${r.term} ${r.year}`;
+  const title = `Academic Transcript - ${r.name} - ${r.term} ${r.year}`;
   const w = window.open('','_blank','width=960,height=750');
   w.document.write(buildTranscriptHtml([r], title));
   w.document.close();
@@ -2881,14 +2882,14 @@ function loadReportIntoForm(r, idx) {
   document.getElementById('rClass').value = r.cls || 'P1';
   document.getElementById('rTerm').value = r.term || 'First Term';
   document.getElementById('rYear').value = r.year || '';
-  document.getElementById('rClassSize').value = r.classSize !== '—' ? r.classSize : '';
-  document.getElementById('rPosition').value = r.position !== '—' ? r.position : '';
-  document.getElementById('rDaysPresent').value = r.daysPresent !== '—' ? r.daysPresent : '';
-  document.getElementById('rTotalDays').value = r.totalDays !== '—' ? r.totalDays : '';
-  document.getElementById('rNextTerm').value = r.nextTerm !== '—' ? r.nextTerm : '';
+  document.getElementById('rClassSize').value = r.classSize !== '-' ? r.classSize : '';
+  document.getElementById('rPosition').value = r.position !== '-' ? r.position : '';
+  document.getElementById('rDaysPresent').value = r.daysPresent !== '-' ? r.daysPresent : '';
+  document.getElementById('rTotalDays').value = r.totalDays !== '-' ? r.totalDays : '';
+  document.getElementById('rNextTerm').value = r.nextTerm !== '-' ? r.nextTerm : '';
   document.getElementById('rRemark').value = r.remark || '';
   document.getElementById('rHMRemark').value = r.hmRemark || '';
-  document.getElementById('rInterest').value = r.interest !== '—' ? r.interest : '';
+  document.getElementById('rInterest').value = r.interest !== '-' ? r.interest : '';
   document.getElementById('rConduct').value = r.conduct || 'Hardworking';
   document.getElementById('rEditIndex').value = idx !== undefined ? idx : '';
   document.getElementById('generateReportCard').innerHTML = '<i class="fas fa-save"></i> Update Report Card';
@@ -2958,7 +2959,7 @@ function _renderReportCardDisplay(r) {
         <div class="rc-subtitle">${settings.address||''}</div>
         ${settings.district?`<div class="rc-subtitle">${settings.district}</div>`:''}
         ${settings.motto?`<div class="rc-subtitle" style="font-style:italic;">Motto: ${settings.motto}</div>`:''}
-        <div class="rc-term-badge">${(r.term||'').toUpperCase()} — ${r.year||''}</div>
+        <div class="rc-term-badge">${(r.term||'').toUpperCase()} - ${r.year||''}</div>
       </div>
       <div class="rc-photo-wrap">${photoHtml}</div>
     </div>
@@ -2967,7 +2968,7 @@ function _renderReportCardDisplay(r) {
       <div class="rc-info-item"><strong>${r.name}</strong>Pupil's Name</div>
       <div class="rc-info-item"><strong>${r.cls}</strong>Class</div>
       <div class="rc-info-item"><strong>${rankDisplay}</strong>Position / Class Size</div>
-      <div class="rc-info-item"><strong>${r.daysPresent||'—'} / ${r.totalDays||'—'}</strong>Attendance</div>
+      <div class="rc-info-item"><strong>${r.daysPresent||'-'} / ${r.totalDays||'-'}</strong>Attendance</div>
     </div>
     <table class="rc-table">
       <thead><tr>
@@ -2987,13 +2988,13 @@ function _renderReportCardDisplay(r) {
       </tr></tfoot>
     </table>
     <div class="rc-avg-row">
-      <span class="rc-avg-pill ${avgCls}"><i class="fas fa-chart-bar"></i> Average: ${r.avg}/100 — Grade ${r.avgGrade} · ${r.avgRemark}</span>
+      <span class="rc-avg-pill ${avgCls}"><i class="fas fa-chart-bar"></i> Average: ${r.avg}/100 - Grade ${r.avgGrade} · ${r.avgRemark}</span>
       <span class="rc-rank-pill"><i class="fas fa-trophy"></i> Class Rank: ${rankDisplay}</span>
     </div>
     <div class="rc-conduct-row">
-      <div class="rc-conduct-item"><span>Conduct</span><strong>${r.conduct||'—'}</strong></div>
-      <div class="rc-conduct-item"><span>Interest / Extra-Curricular</span><strong>${r.interest||'—'}</strong></div>
-      <div class="rc-conduct-item"><span>Next Term Begins</span><strong>${r.nextTerm||'—'}</strong></div>
+      <div class="rc-conduct-item"><span>Conduct</span><strong>${r.conduct||'-'}</strong></div>
+      <div class="rc-conduct-item"><span>Interest / Extra-Curricular</span><strong>${r.interest||'-'}</strong></div>
+      <div class="rc-conduct-item"><span>Next Term Begins</span><strong>${r.nextTerm||'-'}</strong></div>
     </div>
     <div class="rc-footer-grid">
       <div class="rc-sign-box">
@@ -3036,7 +3037,7 @@ function getArrearsForPupil(studentId, studentName, currentTerm) {
 function totalDueForRecord(f) {
   return (f.due||0) + (f.arrears||0);
 }
-// Sum all payment transactions — global ledger is authoritative, f.payments as fallback
+// Sum all payment transactions - global ledger is authoritative, f.payments as fallback
 function totalPaidForRecord(f) {
   // If we have a studentId and a global payments ledger, use it (most accurate)
   if (f.studentId && state.payments && state.payments.length) {
@@ -3053,7 +3054,7 @@ function totalPaidForRecord(f) {
 
 // ── REPORT STORAGE HELPERS (doc-spec API) ────────────────────
 // Reports are stored in state.reports[] but accessed via these clean helpers.
-// Key: studentId (or name for manual) + term + year — guaranteed unique.
+// Key: studentId (or name for manual) + term + year - guaranteed unique.
 
 function saveReport(studentId, term, year, reportData) {
   if (!state.reports) state.reports = [];
@@ -3088,7 +3089,7 @@ function getReportsRange(studentId, year, fromTerm, toTerm) {
 }
 
 // ── PAYMENT LEDGER HELPERS (doc-spec API) ───────────────────
-// Global state.payments[] — every payment gets its own record.
+// Global state.payments[] - every payment gets its own record.
 // Also mirrors into f.payments[] on the fee record for backward compat.
 
 function recordPayment(studentId, term, year, amount, meta) {
@@ -3098,7 +3099,7 @@ function recordPayment(studentId, term, year, amount, meta) {
   const entry = {
     id:         'PMT-' + Date.now() + '-' + Math.floor(Math.random()*1000),
     studentId,
-    studentUID: pupil?.uid || null,      // permanent ID — survives name changes
+    studentUID: pupil?.uid || null,      // permanent ID - survives name changes
     term,
     year:       year || state.settings.session || '',   // ✅ academic year always stamped
     amount,
@@ -3206,7 +3207,7 @@ function setFeeStructure(cls, term, year, amount) {
   }
 }
 
-// Get the correct due amount for a fee record — always prefer structure over stored f.due
+// Get the correct due amount for a fee record - always prefer structure over stored f.due
 function getDueForRecord(f) {
   const structAmt = getFeeFromStructure(f.cls, f.term, f.year || state.settings.session);
   return structAmt !== null ? structAmt : (f.due || 0);
@@ -3250,13 +3251,13 @@ function renderFeeStructureUI() {
           + '</td>'
         ).join('')
       + '<td style="text-align:center;font-weight:700;color:var(--blue);" id="fss-total-' + cls.replace(/[^a-z0-9]/gi,'_') + '">'
-      + (yearTotal > 0 ? 'GH₳' + yearTotal.toFixed(2) : '—')
+      + (yearTotal > 0 ? 'GH₳' + yearTotal.toFixed(2) : '-')
       + '</td></tr>';
   });
 
   html += '</tbody></table></div>'
     + '<p style="font-size:12px;color:var(--text-muted);margin-top:10px;">'
-    + '<i class="fas fa-info-circle"></i> Changes save automatically. These amounts will be used for all balance calculations — teachers cannot override them when recording payments.'
+    + '<i class="fas fa-info-circle"></i> Changes save automatically. These amounts will be used for all balance calculations - teachers cannot override them when recording payments.'
     + '</p>';
 
   wrap.innerHTML = html;
@@ -3274,7 +3275,7 @@ function onFeeStructureChange(input) {
   if (totalCell) {
     const terms = ['First Term', 'Second Term', 'Third Term'];
     const total = terms.reduce((a, t) => a + (getFeeFromStructure(cls, t, year) || 0), 0);
-    totalCell.textContent = total > 0 ? 'GH₳' + total.toFixed(2) : '—';
+    totalCell.textContent = total > 0 ? 'GH₳' + total.toFixed(2) : '-';
   }
   autosave();
   showToast('✅ Fee updated: ' + cls + ' · ' + term + ' = GH₳' + amount.toFixed(2));
@@ -3352,7 +3353,7 @@ function viewPaymentHistory(feeId) {
   const termBlocks = allRecs.map(rec => {
     const payments = rec.payments && rec.payments.length
       ? rec.payments
-      : (rec.paid > 0 ? [{ amt: rec.paid, date: rec.createdAt?.slice(0,10)||'—', note: '', method:'Cash', receiptNo:'—' }] : []);
+      : (rec.paid > 0 ? [{ amt: rec.paid, date: rec.createdAt?.slice(0,10)||'-', note: '', method:'Cash', receiptNo:'-' }] : []);
     const termDue  = getDueForRecord(rec) + (rec.arrears||0);
     const termPaid = payments.reduce((a,p) => a + p.amt, 0);
     const termBal  = termDue - termPaid;
@@ -3365,13 +3366,13 @@ function viewPaymentHistory(feeId) {
       ? payments.map(p => {
           running -= p.amt;
           return `<tr>
-            <td style="padding:5px 8px;font-size:12px;">${p.date||'—'}</td>
+            <td style="padding:5px 8px;font-size:12px;">${p.date||'-'}</td>
             <td style="padding:5px 8px;font-size:11px;">
-              <span style="background:var(--blue-light);color:var(--blue);border-radius:4px;padding:1px 5px;font-size:10px;font-weight:700;">${escHtml(p.receiptNo||'—')}</span>
+              <span style="background:var(--blue-light);color:var(--blue);border-radius:4px;padding:1px 5px;font-size:10px;font-weight:700;">${escHtml(p.receiptNo||'-')}</span>
             </td>
             <td style="padding:5px 8px;color:var(--green);font-weight:700;font-size:13px;">${fmt(p.amt)}</td>
             <td style="padding:5px 8px;font-size:11px;color:var(--text-muted);">${escHtml(p.method||'Cash')}</td>
-            <td style="padding:5px 8px;font-size:11px;color:var(--text-muted);">${escHtml(p.note||'—')}</td>
+            <td style="padding:5px 8px;font-size:11px;color:var(--text-muted);">${escHtml(p.note||'-')}</td>
             <td style="padding:5px 8px;font-weight:700;color:${running>0?'var(--red)':'var(--green)'};">${fmt(running)}</td>
           </tr>`;
         }).join('')
@@ -3382,7 +3383,7 @@ function viewPaymentHistory(feeId) {
       <div style="border:1px solid var(--border);border-radius:8px;margin-bottom:12px;overflow:hidden;">
         <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:${isActive?'var(--blue-light)':'var(--bg-light)'};">
           <div>
-            <strong style="font-size:13px;color:${isActive?'var(--blue)':'var(--text)'};">${rec.term||'—'} — ${rec.year||state.settings.session||''}</strong>
+            <strong style="font-size:13px;color:${isActive?'var(--blue)':'var(--text)'};">${rec.term||'-'} - ${rec.year||state.settings.session||''}</strong>
             ${rec.arrears>0?`<span style="font-size:10px;background:#fff7e0;color:#92400e;border-radius:4px;padding:1px 5px;margin-left:6px;">Arrears: ${fmt(rec.arrears)}</span>`:''}
           </div>
           <div style="display:flex;gap:12px;font-size:12px;">
@@ -3417,7 +3418,7 @@ function viewPaymentHistory(feeId) {
       ${photoHtml}
       <div>
         <div style="font-weight:800;font-size:14px;">${f.student}</div>
-        <div style="font-size:12px;color:var(--text-muted);">${f.cls||'—'} &nbsp;·&nbsp; ${state.settings.session||''}</div>
+        <div style="font-size:12px;color:var(--text-muted);">${f.cls||'-'} &nbsp;·&nbsp; ${state.settings.session||''}</div>
       </div>
       <button onclick="printStudentStatement('${f.student.replace(/'/g,"\'")}', '${f.studentId||''}')" style="margin-left:auto;background:var(--blue);color:#fff;border:none;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;"><i class="fas fa-print"></i> Print Statement</button>
     </div>
@@ -3460,13 +3461,13 @@ function printStudentStatement(studentName, studentId) {
   const session = state.settings.session || '';
   const date = new Date().toLocaleDateString('en-GH', {year:'numeric',month:'long',day:'numeric'});
   const student = state.students.find(s => s.id === sid || `${s.first} ${s.last}` === studentName);
-  const cls = student ? student.cls : (allRecs[0]?.cls || '—');
+  const cls = student ? student.cls : (allRecs[0]?.cls || '-');
 
   let grandDue = 0, grandPaid = 0;
   const termSections = allRecs.map(rec => {
     const payments = rec.payments && rec.payments.length
       ? rec.payments
-      : (rec.paid > 0 ? [{ amt: rec.paid, date: rec.createdAt?.slice(0,10)||'—', note:'', method:'Cash', receiptNo:'—' }] : []);
+      : (rec.paid > 0 ? [{ amt: rec.paid, date: rec.createdAt?.slice(0,10)||'-', note:'', method:'Cash', receiptNo:'-' }] : []);
     const termDue  = (rec.due||0) + (rec.arrears||0);
     const termPaid = payments.reduce((a,p) => a + p.amt, 0);
     const termBal  = termDue - termPaid;
@@ -3478,11 +3479,11 @@ function printStudentStatement(studentName, studentId) {
       ? payments.map(p => {
           running -= p.amt;
           return `<tr>
-            <td>${p.date||'—'}</td>
-            <td>${p.receiptNo||'—'}</td>
+            <td>${p.date||'-'}</td>
+            <td>${p.receiptNo||'-'}</td>
             <td style="color:#16a34a;font-weight:700;">GH₵${p.amt.toFixed(2)}</td>
             <td>${p.method||'Cash'}</td>
-            <td>${p.note||'—'}</td>
+            <td>${p.note||'-'}</td>
             <td style="font-weight:700;color:${running>0?'#dc2626':'#16a34a'};">GH₵${running.toFixed(2)}</td>
           </tr>`;
         }).join('')
@@ -3491,7 +3492,7 @@ function printStudentStatement(studentName, studentId) {
     return `
       <div style="margin-bottom:20px;">
         <div style="display:flex;justify-content:space-between;align-items:center;background:#f0f4ff;padding:8px 12px;border-radius:6px;margin-bottom:8px;">
-          <strong style="color:#1d4ed8;">${rec.term||'—'} — ${rec.year||session}</strong>
+          <strong style="color:#1d4ed8;">${rec.term||'-'} - ${rec.year||session}</strong>
           <span style="font-size:12px;">Due: <b>GH₵${termDue.toFixed(2)}</b> &nbsp; Paid: <b style="color:#16a34a;">GH₵${termPaid.toFixed(2)}</b> &nbsp; Balance: <b style="color:${termBal>0?'#dc2626':'#16a34a'};">GH₵${termBal.toFixed(2)}</b></span>
         </div>
         <table>
@@ -3503,7 +3504,7 @@ function printStudentStatement(studentName, studentId) {
 
   const grandBal = grandDue - grandPaid;
   const w = window.open('', '_blank', 'width=900,height=750');
-  w.document.write(`<!DOCTYPE html><html><head><title>Fee Statement — ${studentName}</title>
+  w.document.write(`<!DOCTYPE html><html><head><title>Fee Statement - ${studentName}</title>
   <style>
     body { font-family: Arial, sans-serif; padding: 28px; max-width: 820px; margin: auto; color: #111; }
     .header { text-align: center; border-bottom: 3px solid #1d4ed8; padding-bottom: 14px; margin-bottom: 18px; }
@@ -3603,8 +3604,8 @@ function renderArrearsTable() {
       <tbody>${data.map((f,i) => `<tr>
         <td>${i+1}</td>
         <td><strong>${escHtml(f.student)}</strong></td>
-        <td>${escHtml(f.cls||'—')}</td>
-        <td>${escHtml(f.term||'—')}</td>
+        <td>${escHtml(f.cls||'-')}</td>
+        <td>${escHtml(f.term||'-')}</td>
         <td>${fmt(f.due)}</td>
         <td style="color:var(--green);">${fmt(f.paid)}</td>
         <td style="color:var(--red);font-weight:700;">${fmt(f.balance)}</td>
@@ -3620,7 +3621,7 @@ function printArrearsReport() {
   if (clsF && clsF !== 'All Classes') data = data.filter(f => f.cls === clsF);
   data = data.map(f => ({...f, balance:f.due-f.paid})).sort((a,b)=>b.balance-a.balance);
   const total = data.reduce((a,f)=>a+f.balance,0);
-  const rows = data.map((f,i)=>`<tr><td>${i+1}</td><td>${f.student}</td><td>${f.cls||'—'}</td><td>${f.term||'—'}</td><td>${fmt(f.due)}</td><td>${fmt(f.paid)}</td><td style="color:#dc2626;font-weight:700;">${fmt(f.balance)}</td></tr>`).join('');
+  const rows = data.map((f,i)=>`<tr><td>${i+1}</td><td>${f.student}</td><td>${f.cls||'-'}</td><td>${f.term||'-'}</td><td>${fmt(f.due)}</td><td>${fmt(f.paid)}</td><td style="color:#dc2626;font-weight:700;">${fmt(f.balance)}</td></tr>`).join('');
   const w = window.open('','_blank','width=900,height=700');
   w.document.write(`<!DOCTYPE html><html><head><title>Arrears Report</title><style>
     body{font-family:Arial,sans-serif;padding:30px;color:#111;} h1{font-size:20px;margin:0;} h2{font-size:14px;color:#555;margin:4px 0 20px;}
@@ -3629,7 +3630,7 @@ function printArrearsReport() {
     .total-row{background:#fee2e2;font-weight:700;} @media print{button{display:none;}}
   </style></head><body>
     <div style="text-align:center;margin-bottom:20px;">
-      <h1>${school}</h1><h2>Fee Arrears Report — ${clsF} — ${date}</h2>
+      <h1>${school}</h1><h2>Fee Arrears Report - ${clsF} - ${date}</h2>
     </div>
     <div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:6px;padding:10px;margin-bottom:16px;text-align:center;font-size:15px;font-weight:700;color:#dc2626;">
       ${data.length} pupil(s) with outstanding fees &nbsp;|&nbsp; Total Arrears: ${fmt(total)}
@@ -3684,7 +3685,7 @@ function renderPaymentStatement() {
       <thead><tr><th>#</th><th>Pupil</th><th>Class</th><th>Term</th><th>Due</th><th>Paid</th><th>Balance</th><th>Status</th></tr></thead>
       <tbody>${data.map((f,i)=>{
         const bal=f.due-f.paid;
-        return `<tr><td>${i+1}</td><td>${escHtml(f.student)}</td><td>${escHtml(f.cls||'—')}</td><td>${escHtml(f.term||'—')}</td><td>${fmt(f.due)}</td><td style="color:var(--green);">${fmt(f.paid)}</td><td style="color:${bal>0?'var(--red)':'var(--green)'};">${fmt(bal)}</td><td>${statusPill(getStatus(f.due,f.paid))}</td></tr>`;
+        return `<tr><td>${i+1}</td><td>${escHtml(f.student)}</td><td>${escHtml(f.cls||'-')}</td><td>${escHtml(f.term||'-')}</td><td>${fmt(f.due)}</td><td style="color:var(--green);">${fmt(f.paid)}</td><td style="color:${bal>0?'var(--red)':'var(--green)'};">${fmt(bal)}</td><td>${statusPill(getStatus(f.due,f.paid))}</td></tr>`;
       }).join('')}</tbody>
     </table></div>`;
 }
@@ -3701,7 +3702,7 @@ function printPaymentStatement() {
   const school = state.settings.schoolName||'School';
   const date   = new Date().toLocaleDateString('en-GH',{year:'numeric',month:'long',day:'numeric'});
   const totalDue=data.reduce((a,f)=>a+f.due,0), totalPaid=data.reduce((a,f)=>a+f.paid,0), totalBal=totalDue-totalPaid;
-  const rows = data.map((f,i)=>{const bal=f.due-f.paid;return `<tr><td>${i+1}</td><td>${f.student}</td><td>${f.cls||'—'}</td><td>${f.term||'—'}</td><td>${fmt(f.due)}</td><td>${fmt(f.paid)}</td><td style="color:${bal>0?'#dc2626':'#16a34a'};font-weight:${bal>0?700:400};">${fmt(bal)}</td><td>${getStatus(f.due,f.paid)}</td></tr>`;}).join('');
+  const rows = data.map((f,i)=>{const bal=f.due-f.paid;return `<tr><td>${i+1}</td><td>${f.student}</td><td>${f.cls||'-'}</td><td>${f.term||'-'}</td><td>${fmt(f.due)}</td><td>${fmt(f.paid)}</td><td style="color:${bal>0?'#dc2626':'#16a34a'};font-weight:${bal>0?700:400};">${fmt(bal)}</td><td>${getStatus(f.due,f.paid)}</td></tr>`;}).join('');
   const w=window.open('','_blank','width=900,height=700');
   w.document.write(`<!DOCTYPE html><html><head><title>Payment Statement</title><style>
     body{font-family:Arial,sans-serif;padding:30px;color:#111;} h1{font-size:20px;margin:0;} h2{font-size:13px;color:#555;margin:4px 0 20px;}
@@ -3784,7 +3785,7 @@ function initFees() {
 }
 
 // ════════════════════════════════════════════════════════════════
-// CLASS BILL SYSTEM — bills are created per class, auto-assigned to all students
+// CLASS BILL SYSTEM - bills are created per class, auto-assigned to all students
 // ════════════════════════════════════════════════════════════════
 
 function openClassBillModal() {
@@ -3858,7 +3859,7 @@ function _getBillItems() {
     })).filter(it => it.desc || it.amt > 0);
 }
 
-// Live preview panel — shows student count, itemised breakdown, duplicate warning
+// Live preview panel - shows student count, itemised breakdown, duplicate warning
 function renderBillPreview() {
   const wrap = document.getElementById('billPreviewWrap');
   if (!wrap) return;
@@ -3953,7 +3954,7 @@ function applyClassBillToStudents() {
   showToast(`\u2705 Bill applied: ${created} created, ${updated} updated \u2014 ${pupils.length} students in ${cls} billed GH\u20B3${total.toFixed(2)} each.`);
 }
 
-// Print fee bills — one per student in the selected class
+// Print fee bills - one per student in the selected class
 function printFeeBill() {
   const cls  = document.getElementById('billClass').value;
   const term = document.getElementById('billTerm').value;
@@ -4020,7 +4021,7 @@ function applyBulkFee() {
   if (!cls)    { showToast('⚠️ Select a class.'); return; }
   if (due <= 0){ showToast('⚠️ Enter a valid fee amount.'); return; }
 
-  // Save to fee structure table (single source of truth — not on fee records)
+  // Save to fee structure table (single source of truth - not on fee records)
   setFeeStructure(cls, term, year, due);
   renderFees(); updateFeeStats(); autosave();
   document.getElementById('bulkFeeModal').classList.remove('open');
@@ -4031,7 +4032,7 @@ function quickPrintFeeReceipt(feeId) {
   const f = state.fees.find(x => x.id === feeId); if (!f) return;
   const payments = f.payments && f.payments.length
     ? f.payments
-    : (f.paid > 0 ? [{ amt: f.paid, date: (f.createdAt||'').slice(0,10)||'—', note:'', method:'Cash', receiptNo:'—' }] : []);
+    : (f.paid > 0 ? [{ amt: f.paid, date: (f.createdAt||'').slice(0,10)||'-', note:'', method:'Cash', receiptNo:'-' }] : []);
   if (!payments.length) { showToast('No payments to print.'); return; }
   const lastPay  = payments[payments.length - 1];
   const termDue  = getDueForRecord(f) + (f.arrears||0);
@@ -4065,11 +4066,11 @@ function quickPrintFeeReceipt(feeId) {
     + '<div class="logo">' + school + '</div>'
     + '<div style="text-align:center;font-size:11px;color:#555;margin-bottom:8px;">' + address + '</div>'
     + '<div style="text-align:center;font-weight:700;font-size:13px;margin-bottom:6px;color:#333;">OFFICIAL PAYMENT RECEIPT</div>'
-    + '<div class="rcpt-no">&#x1F9FE; ' + (lastPay.receiptNo||'RCPT-—') + '</div>'
+    + '<div class="rcpt-no">&#x1F9FE; ' + (lastPay.receiptNo||'RCPT--') + '</div>'
     + '<div class="row"><span class="label">Student</span><span class="val">' + escHtml(f.student) + '</span></div>'
-    + '<div class="row"><span class="label">Class</span><span class="val">' + (f.cls||'—') + '</span></div>'
-    + '<div class="row"><span class="label">Term</span><span class="val">' + (f.term||'—') + '</span></div>'
-    + '<div class="row"><span class="label">Date of Payment</span><span class="val">' + (lastPay.date||'—') + '</span></div>'
+    + '<div class="row"><span class="label">Class</span><span class="val">' + (f.cls||'-') + '</span></div>'
+    + '<div class="row"><span class="label">Term</span><span class="val">' + (f.term||'-') + '</span></div>'
+    + '<div class="row"><span class="label">Date of Payment</span><span class="val">' + (lastPay.date||'-') + '</span></div>'
     + '<div class="row"><span class="label">Payment Method</span><span class="val">' + (lastPay.method||'Cash') + '</span></div>'
     + '<div class="row"><span class="label">Received By</span><span class="val">' + (lastPay.rcvdBy||'Admin') + '</span></div>'
     + noteRow
@@ -4110,7 +4111,7 @@ function printFeeReceipt() {
   const balance = due - paid;
   const logoHtml = state.schoolLogo ? `<img src="${state.schoolLogo}" style="height:70px;object-fit:contain;"/>` : '🏫';
   const win = window.open('','_blank');
-  win.document.write(`<!DOCTYPE html><html><head><title>Receipt — ${student}</title><style>
+  win.document.write(`<!DOCTYPE html><html><head><title>Receipt - ${student}</title><style>
     body{font-family:'Plus Jakarta Sans',Arial,sans-serif;max-width:500px;margin:30px auto;color:#1a2133;font-size:14px;}
     .header{text-align:center;margin-bottom:16px;}
     .logo{font-size:36px;margin-bottom:6px;}
@@ -4206,13 +4207,13 @@ function renderPaymentLogInModal() {
       running -= p.amt;
       const bal = running;
       return `<tr>
-        <td style="font-size:11px;color:var(--text-muted);">${p.date||'—'}</td>
+        <td style="font-size:11px;color:var(--text-muted);">${p.date||'-'}</td>
         <td style="font-size:11px;">
-          <span style="background:var(--blue-light);color:var(--blue);border-radius:4px;padding:1px 5px;font-size:10px;font-weight:700;">${escHtml(p.receiptNo||'—')}</span>
+          <span style="background:var(--blue-light);color:var(--blue);border-radius:4px;padding:1px 5px;font-size:10px;font-weight:700;">${escHtml(p.receiptNo||'-')}</span>
         </td>
         <td style="color:var(--green);font-weight:700;font-size:13px;">${fmt(p.amt)}</td>
         <td style="font-size:11px;color:var(--text-muted);">${escHtml(p.method||'Cash')}</td>
-        <td style="font-size:11px;color:var(--text-muted);">${escHtml(p.note||'—')}</td>
+        <td style="font-size:11px;color:var(--text-muted);">${escHtml(p.note||'-')}</td>
         <td style="font-weight:700;font-size:12px;color:${bal>0?'var(--red)':'var(--green)'};">${fmt(bal)}</td>
         <td><button onclick="removePaymentEntry(${i})" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:12px;" title="Remove"><i class="fas fa-trash"></i></button></td>
       </tr>`;
@@ -4266,7 +4267,7 @@ function saveFee() {
 
   if (!student) { showToast('⚠️ Select a pupil.'); return; }
 
-  // Always derive due from fee structure — never accept manual input
+  // Always derive due from fee structure - never accept manual input
   const structAmt = getFeeFromStructure(cls, term, year);
   if (structAmt === null || structAmt <= 0) {
     showToast('⚠️ No fee set for ' + cls + ' · ' + term + '. Set it in Fee Structure first.'); return;
@@ -4279,7 +4280,7 @@ function saveFee() {
   if (editId) {
     const f = state.fees.find(f => f.id === parseInt(editId));
     if (f) {
-      // Update metadata (due, term, class) but NEVER overwrite payment history —
+      // Update metadata (due, term, class) but NEVER overwrite payment history -
       // _feePaymentDraft IS the full authoritative payment log for this record.
       f.student = student; f.cls = cls||f.cls; f.due = due; f.arrears = arrears; f.term = term;
       f.payments = [..._feePaymentDraft]; // ledger: immutable transaction array
@@ -4467,7 +4468,7 @@ function initGallery() {
     renderGallery();
   });
   document.getElementById('photoUploadInput').addEventListener('change', function(e) {
-    var album = state.albums.find(function(a){ return a.id===currentAlbumId; });
+    var album = state.albums.find(function(a){ return a.id === currentAlbumId; });
     if (!album) return;
     if (!album.photos) album.photos = [];
     var files = Array.from(e.target.files).filter(function(f){ return f.type.startsWith('image/'); });
@@ -4482,7 +4483,7 @@ function initGallery() {
         if (loaded === files.length) {
           renderAlbumPhotos(album);
           saveToDB();
-          showToast('\u2705 ' + loaded + ' photo(s) added!');
+          showToast(loaded + ' photo(s) added!');
         }
       };
       reader.readAsDataURL(file);
@@ -4513,7 +4514,7 @@ function renderWeekly(filter='', cls='') {
       <td>${w.subject}</td>
       <td>${w.cls}</td>
       <td style="text-align:center;font-weight:600;">${w.exercises}</td>
-      <td>${w.homework||'—'}</td>
+      <td>${w.homework||'-'}</td>
       <td>
         <button class="tbl-btn" onclick="editWeekly(${w.id})"><i class="fas fa-edit"></i></button>
         <button class="tbl-btn danger" onclick="deleteWeekly(${w.id})"><i class="fas fa-trash"></i></button>
@@ -4780,7 +4781,7 @@ function populateClassTeacherDropdown(selectedValue) {
     const name = `${t.first} ${t.last}`;
     const opt = document.createElement('option');
     opt.value = name;
-    opt.textContent = `${name} (${t.subject || '—'})`;
+    opt.textContent = `${name} (${t.subject || '-'})`;
     if (selectedValue === name) opt.selected = true;
     sel.appendChild(opt);
   });
@@ -4859,10 +4860,10 @@ function initSettings() {
     // Cancel any pending autosave so we control the save ourselves
     clearTimeout(_saveTimer);
 
-    // Show "Saving…" state immediately
+    // Show "Saving..." state immediately
     const d = document.getElementById('settingsSaved');
     d.style.display = 'flex';
-    d.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i> Saving to cloud…';
+    d.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i> Saving to cloud...';
 
     // Save immediately (not deferred) and wait for Firebase confirmation
     const savedAt = Date.now();
@@ -4881,21 +4882,21 @@ function initSettings() {
             else reject(new Error('not yet synced'));
           }).catch(reject);
         });
-        // Firebase confirmed — show success
+        // Firebase confirmed - show success
         d.innerHTML = '<i class="fas fa-check-circle" style="color:#22c55e;margin-right:6px;"></i> Saved to all devices';
         setTimeout(() => d.style.display = 'none', 3000);
-        showToast('✅ School settings saved to cloud — all devices will update.');
+        showToast('✅ School settings saved to cloud - all devices will update.');
       } catch(err) {
-        // Firebase didn't confirm in time — warn clearly
-        d.innerHTML = '<i class="fas fa-exclamation-triangle" style="color:#f59e0b;margin-right:6px;"></i> Saved locally only — check connection';
+        // Firebase didn't confirm in time - warn clearly
+        d.innerHTML = '<i class="fas fa-exclamation-triangle" style="color:#f59e0b;margin-right:6px;"></i> Saved locally only - check connection';
         setTimeout(() => d.style.display = 'none', 5000);
         showToast('⚠️ Settings saved on this device only. Check your internet connection and save again.');
       }
     } else {
       // Offline
-      d.innerHTML = '<i class="fas fa-wifi" style="color:#f59e0b;margin-right:6px;"></i> Offline — saved locally';
+      d.innerHTML = '<i class="fas fa-wifi" style="color:#f59e0b;margin-right:6px;"></i> Offline - saved locally';
       setTimeout(() => d.style.display = 'none', 4000);
-      showToast('📴 Offline — settings saved on this device. Will sync when connected.');
+      showToast('📴 Offline - settings saved on this device. Will sync when connected.');
     }
   });
 }
@@ -4911,14 +4912,14 @@ function initLogo() {
 
   fileInput.addEventListener('change', function(e) {
     var file = e.target.files[0]; if (!file) return;
-    if (!file.type.startsWith('image/')){ showToast('\u26a0\ufe0f Please select an image file.'); return; }
-    if (file.size > 2*1024*1024){ showToast('\u26a0\ufe0f Image must be under 2MB.'); return; }
+    if (!file.type.startsWith('image/')){ showToast('Please select an image file.'); return; }
+    if (file.size > 2*1024*1024){ showToast("Image must be under 2MB."); return; }
     var reader = new FileReader();
     reader.onload = function(ev) {
       state.schoolLogo = ev.target.result;
       applyLogo(ev.target.result);
       saveToDB();
-      showToast('\u2705 School logo uploaded!');
+      showToast('School logo uploaded!');
     };
     reader.readAsDataURL(file);
   });
@@ -4990,7 +4991,7 @@ function initBackup() {
 function buildBackupData() {
   return {
     version: '2.0',
-    appName: 'EduManage Pro — GES Edition',
+    appName: 'EduManage Pro - GES Edition',
     school: state.settings.schoolName,
     exportedAt: new Date().toISOString(),
     exportedBy: state.currentUser ? state.currentUser.name : 'Admin',
@@ -5086,7 +5087,7 @@ function exportBackup() {
   renderBackupHistory();
   updateBackupInfo();
   autosave();
-  showToast('✅ Full backup exported — includes all settings, pupils, fees, reports, attendance, gallery & more.');
+  showToast('✅ Full backup exported - includes all settings, pupils, fees, reports, attendance, gallery & more.');
 }
 
 function importBackup(e) {
@@ -5096,7 +5097,7 @@ function importBackup(e) {
     try {
       const data = JSON.parse(ev.target.result);
 
-      // Basic validation — must have at least settings or students
+      // Basic validation - must have at least settings or students
       if (!data.settings && !data.students) {
         showToast('⚠️ Invalid backup file. Could not find school data.'); return;
       }
@@ -5141,7 +5142,7 @@ function importBackup(e) {
         state.nextAttendanceId = data.counters.nextAttendanceId || Math.max(0,...(data.attendance||[]).map(x=>x.id))+1;
         state.nextUserId       = data.counters.nextUserId       || Math.max(0,...(data.users||[]).map(x=>x.id))+1;
       } else {
-        // Legacy v1.0 — derive counters from arrays
+        // Legacy v1.0 - derive counters from arrays
         if ((data.students||[]).length)      state.nextStudentId    = Math.max(...data.students.map(x=>x.id))+1;
         if ((data.fees||[]).length)          state.nextFeeId        = Math.max(...data.fees.map(x=>x.id))+1;
         if ((data.teachers||[]).length)      state.nextTeacherId    = Math.max(...data.teachers.map(x=>x.id))+1;
@@ -5187,7 +5188,7 @@ function importBackup(e) {
 
       // ── PERSIST RESTORED DATA ──
       saveToDB();
-      showToast('✅ Full backup restored — all settings, pupils, fees, reports, attendance, gallery & accounts are back!');
+      showToast('✅ Full backup restored - all settings, pupils, fees, reports, attendance, gallery & accounts are back!');
     } catch (err) {
       console.error(err);
       showToast('⚠️ Could not read backup file. It may be corrupted or invalid.');
@@ -5314,7 +5315,7 @@ async function saveToDrive() {
       log.style.display='block';
       showToast('✅ Backup saved to Google Drive!');
     } else {
-      showToast('⚠️ Drive save failed. Token may have expired — sign in again.');
+      showToast('⚠️ Drive save failed. Token may have expired - sign in again.');
     }
   } catch(e){
     showToast('⚠️ Drive upload error. Check your connection.');
@@ -5402,7 +5403,7 @@ function printAttendanceSummary(cls, week) {
 
   const logoHtml = state.schoolLogo ? `<img src="${state.schoolLogo}" style="height:65px;object-fit:contain;"/>` : '🏫';
   const win = window.open('','_blank');
-  win.document.write(`<!DOCTYPE html><html><head><title>Attendance — ${cls} ${week}</title><style>
+  win.document.write(`<!DOCTYPE html><html><head><title>Attendance - ${cls} ${week}</title><style>
     body{font-family:'Segoe UI',Arial,sans-serif;padding:28px;max-width:720px;margin:auto;color:#1a2133;}
     .header{display:flex;align-items:center;gap:16px;border-bottom:3px solid #1a6fd4;padding-bottom:16px;margin-bottom:20px;}
     .school-name{font-size:20px;font-weight:800;color:#1a6fd4;}
@@ -5430,7 +5431,7 @@ function printAttendanceSummary(cls, week) {
     <div class="sub">${school.address||''} &nbsp;|&nbsp; ${school.district||''}</div>
     <div class="sub">Principal: ${school.principal||''}</div>
   </div></div>
-  <div class="title">📋 Attendance Summary — Class: <strong>${cls}</strong> &nbsp;|&nbsp; Week: <strong>${week}</strong></div>
+  <div class="title">📋 Attendance Summary - Class: <strong>${cls}</strong> &nbsp;|&nbsp; Week: <strong>${week}</strong></div>
   <div class="stat-row">
     <div class="stat"><div class="stat-val">${classPupils.length}</div><div class="stat-lbl">Class Size</div></div>
     <div class="stat"><div class="stat-val" style="color:#16a34a;">${present}</div><div class="stat-lbl">Present</div></div>
@@ -5455,7 +5456,7 @@ function printAttendanceSummary(cls, week) {
     <tbody>${records.map((r,i)=>{
       const p = state.students.find(s=>s.id===r.studentId);
       const name = p ? `${p.first} ${p.last}` : `Pupil #${r.studentId}`;
-      const gender = p ? p.gender : '—';
+      const gender = p ? p.gender : '-';
       const cls2 = r.status==='Present'?'status-p':r.status==='Absent'?'status-a':'status-l';
       return `<tr><td>${i+1}</td><td>${name}</td><td>${gender}</td><td class="${cls2}">${r.status}</td></tr>`;
     }).join('')}</tbody>
@@ -5465,7 +5466,7 @@ function printAttendanceSummary(cls, week) {
     <div class="sig-box"><div class="sig-line">Headmaster</div></div>
     <div class="sig-box"><div class="sig-line">Date</div></div>
   </div>
-  <div class="footer">EduManage Pro — ${school.schoolName||'School'} — Printed ${new Date().toLocaleString('en-GH')}</div>
+  <div class="footer">EduManage Pro - ${school.schoolName||'School'} - Printed ${new Date().toLocaleString('en-GH')}</div>
   <script>window.onload=function(){window.print();}<\/script></body></html>`);
   win.document.close();
 }
@@ -5478,7 +5479,7 @@ function renderAttendanceSheet() {
   if (!pupils.length) { showToast('⚠️ No pupils in this class.'); return; }
   const sheet = document.getElementById('attendanceSheet');
   sheet.innerHTML = `
-    <p style="font-weight:700;margin-bottom:10px;color:var(--blue);">${cls} — ${week}</p>
+    <p style="font-weight:700;margin-bottom:10px;color:var(--blue);">${cls} - ${week}</p>
     <div class="att-sheet-grid">
       ${pupils.map(p=>{
         const existing = state.attendance.find(a=>a.studentId===p.id&&a.week===week&&a.cls===cls);
@@ -5585,7 +5586,7 @@ function promoteAllClasses() {
   let total = 0;
   CLASS_ORDER.forEach((cls, i) => {
     const next = CLASS_ORDER[i+1];
-    if (!next) return; // last class — graduates, skip
+    if (!next) return; // last class - graduates, skip
     state.students.forEach(s => {
       if (s.cls !== cls) return;
       if (!s.promotionHistory) s.promotionHistory = [];
@@ -5598,7 +5599,7 @@ function promoteAllClasses() {
   renderPromotionHistory();
   document.getElementById('promotionPreview').innerHTML = '';
   document.getElementById('promoteFromClass').value = '';
-  showToast(`\u2705 Full school promotion complete — ${total} pupils promoted!`);
+  showToast(`\u2705 Full school promotion complete - ${total} pupils promoted!`);
 }
 
 // ── PROMOTION HISTORY TABLE ──
@@ -5625,15 +5626,15 @@ function renderPromotionHistory() {
     <td><strong>${escHtml(e.name)}</strong></td>
     <td><span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;">${escHtml(e.from)}</span></td>
     <td><span style="background:#dcfce7;color:#16a34a;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;">${escHtml(e.to)}</span></td>
-    <td style="font-size:12px;">${escHtml(e.year||'—')}</td>
-    <td style="font-size:12px;color:var(--text-muted);">${e.promotedAt ? new Date(e.promotedAt).toLocaleDateString('en-GH') : '—'}</td>
-    <td style="font-size:12px;color:var(--text-muted);">${escHtml(e.promotedBy||'—')}</td>
+    <td style="font-size:12px;">${escHtml(e.year||'-')}</td>
+    <td style="font-size:12px;color:var(--text-muted);">${e.promotedAt ? new Date(e.promotedAt).toLocaleDateString('en-GH') : '-'}</td>
+    <td style="font-size:12px;color:var(--text-muted);">${escHtml(e.promotedBy||'-')}</td>
     <td><button class="tbl-btn" onclick="printFullAcademicTranscript(${e.studentId})" title="Print full academic transcript"><i class="fas fa-file-alt"></i></button></td>
   </tr>`).join('')}
   </tbody></table>`;
 }
 
-// ── FULL ACADEMIC TRANSCRIPT — all years, all terms, preserves class at time ──
+// ── FULL ACADEMIC TRANSCRIPT - all years, all terms, preserves class at time ──
 function printFullAcademicTranscript(studentId) {
   const student = state.students.find(s => s.id === studentId);
   if (!student) { showToast('\u26A0\uFE0F Student not found.'); return; }
@@ -5672,23 +5673,23 @@ function printFullAcademicTranscript(studentId) {
   // Build year blocks
   const yearBlocks = Object.entries(byYear).map(([yr, reps]) => {
     // Determine class for this year (from first report of that year)
-    const clsForYear = reps[0]?.cls || '—';
+    const clsForYear = reps[0]?.cls || '-';
     const termRows = reps.map(r => {
-      const avg = r.avg || '—';
-      const grade = r.avgGrade || '—';
+      const avg = r.avg || '-';
+      const grade = r.avgGrade || '-';
       const subRows = (r.subjects||[]).map(s=>`
         <tr>
           <td style="padding:4px 8px;">${escHtml(s.name)}</td>
-          <td style="text-align:center;padding:4px;">${s.cls||'—'}</td>
-          <td style="text-align:center;padding:4px;">${s.exam||'—'}</td>
-          <td style="text-align:center;padding:4px;font-weight:700;">${s.total||'—'}</td>
-          <td style="text-align:center;padding:4px;">${s.grade||'—'}</td>
+          <td style="text-align:center;padding:4px;">${s.cls||'-'}</td>
+          <td style="text-align:center;padding:4px;">${s.exam||'-'}</td>
+          <td style="text-align:center;padding:4px;font-weight:700;">${s.total||'-'}</td>
+          <td style="text-align:center;padding:4px;">${s.grade||'-'}</td>
         </tr>`).join('');
       return `
         <div style="margin-bottom:14px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
           <div style="background:#3b82f6;color:#fff;padding:8px 14px;display:flex;justify-content:space-between;align-items:center;">
             <strong style="font-size:13px;">${escHtml(r.term)}</strong>
-            <span style="font-size:13px;">Avg: <strong>${avg}/100</strong> &nbsp; Grade: <strong>${grade}</strong> &nbsp; Pos: ${r.position||'—'}/${r.classSize||'—'}</span>
+            <span style="font-size:13px;">Avg: <strong>${avg}/100</strong> &nbsp; Grade: <strong>${grade}</strong> &nbsp; Pos: ${r.position||'-'}/${r.classSize||'-'}</span>
           </div>
           <table style="width:100%;border-collapse:collapse;font-size:11px;">
             <thead><tr style="background:#f3f4f6;">
@@ -5716,7 +5717,7 @@ function printFullAcademicTranscript(studentId) {
 
   const w = window.open('','_blank','width=900,height=800');
   w.document.write(`<!DOCTYPE html><html><head>
-    <title>Academic Transcript — ${escHtml(name)}</title>
+    <title>Academic Transcript - ${escHtml(name)}</title>
     <style>
       *{box-sizing:border-box;} body{font-family:Arial,sans-serif;padding:24px;color:#111;max-width:860px;margin:0 auto;}
       table td,table th{border:1px solid #e5e7eb;}
@@ -5734,8 +5735,8 @@ function printFullAcademicTranscript(studentId) {
       ${photoHtml}
       <div>
         <div style="font-size:20px;font-weight:900;">${escHtml(name)}</div>
-        <div style="font-size:13px;color:#555;margin-top:4px;">Current Class: <strong>${escHtml(student.cls||'—')}</strong></div>
-        <div style="font-size:12px;color:#64748b;margin-top:2px;">Admission No: ${escHtml(student.admNo||student.id?.toString()||'—')} &nbsp;·&nbsp; DOB: ${escHtml(student.dob||'—')}</div>
+        <div style="font-size:13px;color:#555;margin-top:4px;">Current Class: <strong>${escHtml(student.cls||'-')}</strong></div>
+        <div style="font-size:12px;color:#64748b;margin-top:2px;">Admission No: ${escHtml(student.admNo||student.id?.toString()||'-')} &nbsp;·&nbsp; DOB: ${escHtml(student.dob||'-')}</div>
         ${history ? `<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;">${history}</div>` : ''}
       </div>
     </div>
@@ -5816,7 +5817,7 @@ function renderAdmissions() {
       </td>
       <td><span style="background:var(--blue-light);color:var(--blue);padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;">${a.cls}</span></td>
       <td>${a.gender}</td>
-      <td style="font-size:12px;color:var(--text-muted);">${a.date || '—'}</td>
+      <td style="font-size:12px;color:var(--text-muted);">${a.date || '-'}</td>
       <td><span style="background:${sb};color:${sc};padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;">${a.status}</span></td>
       <td style="text-align:center;">
         ${a.enrolled
@@ -5906,7 +5907,7 @@ function saveAdmission(andEnroll = false) {
     if (andEnroll) d.status = 'Admitted';
     admission = { id: state.nextAdmissionId++, ...d, enrolled: false, enrolledStudentId: null };
     state.admissions.push(admission);
-    showToast(`✅ Admission form saved — ${d.admNumber}`);
+    showToast(`✅ Admission form saved - ${d.admNumber}`);
   }
 
   if (andEnroll || d.status === 'Admitted') {
@@ -5975,7 +5976,7 @@ function editAdmission(admId) {
   const a = state.admissions.find(x => x.id === admId);
   if (!a) return;
   clearAdmissionModal();
-  document.getElementById('admModalTitle').innerHTML = `<i class="fas fa-edit"></i> Edit Admission — ${a.admNumber}`;
+  document.getElementById('admModalTitle').innerHTML = `<i class="fas fa-edit"></i> Edit Admission - ${a.admNumber}`;
   document.getElementById('admEditId').value = a.id;
   // Populate all fields
   const map = {
@@ -6019,11 +6020,11 @@ function printAdmissionForm(admId) {
     ? `<img src="${state.schoolLogo}" style="height:70px;object-fit:contain;"/>`
     : '<div style="font-size:40px;">🏫</div>';
 
-  const row = (label, val) => `<tr><td class="lbl">${label}</td><td class="val">${val||'—'}</td></tr>`;
+  const row = (label, val) => `<tr><td class="lbl">${label}</td><td class="val">${val||'-'}</td></tr>`;
   const sectionHdr = t => `<tr><th colspan="2" class="sec-hdr">${t}</th></tr>`;
 
   const win = window.open('','_blank');
-  win.document.write(`<!DOCTYPE html><html><head><title>Admission Form — ${a.first} ${a.last}</title>
+  win.document.write(`<!DOCTYPE html><html><head><title>Admission Form - ${a.first} ${a.last}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0;}
   body{font-family:'Segoe UI',Arial,sans-serif;padding:24px;color:#1a2133;font-size:13px;}
@@ -6188,7 +6189,7 @@ function renderIDCards() {
     const photoSrc = person.photo || null;
     const initials = `${person.first.charAt(0)}${person.last.charAt(0)}`.toUpperCase();
 
-    const clsVal = type === 'pupil' ? person.cls : (person.assigned || '—');
+    const clsVal = type === 'pupil' ? person.cls : (person.assigned || '-');
     const role   = type === 'teacher' ? (person.subject || 'Teacher') : null;
 
     return `<div class="id-card-wrap">
@@ -6216,7 +6217,7 @@ function renderIDCards() {
             <div class="id-ghcard-row"><span class="id-lbl">Class</span><span class="id-val">${clsVal}</span></div>
             <div class="id-ghcard-row"><span class="id-lbl">Gender</span><span class="id-val">${person.gender}</span></div>
             ${role ? `<div class="id-ghcard-row"><span class="id-lbl">Subject</span><span class="id-val">${role}</span></div>` : ''}
-            <div class="id-ghcard-row"><span class="id-lbl">Phone</span><span class="id-val">${person.phone || '—'}</span></div>
+            <div class="id-ghcard-row"><span class="id-lbl">Phone</span><span class="id-val">${person.phone || '-'}</span></div>
             <div class="id-ghcard-row"><span class="id-lbl">Year</span><span class="id-val">${year}</span></div>
           </div>
           <div class="id-ghcard-bottom">
@@ -6266,7 +6267,7 @@ function printSingleIDCard(id, type) {
     ? (person.uid || `GES-STU-${String(id).padStart(4,'0')}`)
     : `GES-TCH-${String(id).padStart(4,'0')}`;
   const typeLabel = type === 'pupil' ? 'STUDENT' : 'STAFF';
-  const clsVal    = type === 'pupil' ? person.cls : (person.assigned || '—');
+  const clsVal    = type === 'pupil' ? person.cls : (person.assigned || '-');
   const role      = type === 'teacher' ? (person.subject || 'Teacher') : null;
   const initials  = `${person.first.charAt(0)}${person.last.charAt(0)}`.toUpperCase();
 
@@ -6287,7 +6288,7 @@ function printSingleIDCard(id, type) {
     : '';
 
   const win = window.open('', '_blank', 'width=700,height=480');
-  win.document.write(`<!DOCTYPE html><html><head><title>ID Card — ${name}</title>
+  win.document.write(`<!DOCTYPE html><html><head><title>ID Card - ${name}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0;}
   body{background:#d1d5db;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:'Segoe UI',Arial,sans-serif;gap:18px;}
@@ -6372,7 +6373,7 @@ function printSingleIDCard(id, type) {
           <tr><td class="lbl">Class</td><td class="val">${clsVal}</td></tr>
           <tr><td class="lbl">Gender</td><td class="val">${person.gender}</td></tr>
           ${extraField}
-          <tr><td class="lbl">Phone</td><td class="val">${person.phone || '—'}</td></tr>
+          <tr><td class="lbl">Phone</td><td class="val">${person.phone || '-'}</td></tr>
           <tr><td class="lbl">Year</td><td class="val">${year}</td></tr>
         </table>
       </div>
@@ -6398,7 +6399,7 @@ function initIDCards() {
 }
 
 // ════════════════════════════════════════
-// SMS REMINDERS — ENHANCED WITH BULK SEND
+// SMS REMINDERS - ENHANCED WITH BULK SEND
 // ════════════════════════════════════════
 function getSMSData() {
   const clsFilter    = document.getElementById('smsClassFilter')?.value || '';
@@ -6417,7 +6418,7 @@ function getSMSData() {
 }
 
 function buildSMSMessage(f, template) {
-  const tpl = template || `Dear Parent/Guardian, this is a reminder that {name} ({class}) has an outstanding school fee balance of GH₵{balance}. Please pay at the earliest. Thank you — {school}.`;
+  const tpl = template || `Dear Parent/Guardian, this is a reminder that {name} ({class}) has an outstanding school fee balance of GH₵{balance}. Please pay at the earliest. Thank you - {school}.`;
   const balance = (f.due - f.paid).toFixed(2);
   return tpl
     .replace(/{name}/g, f.student)
@@ -6440,7 +6441,7 @@ function generateSMSReminders() {
     const balance = f.due - f.paid;
     const msg     = buildSMSMessage(f);
     const safeMsg = msg.replace(/'/g,"\\'");
-    const phone   = f.phone || '—';
+    const phone   = f.phone || '-';
     return `<tr id="sms_row_${i}" class="sms-row">
       <td class="sms-check-col"><input type="checkbox" class="sms-chk" data-index="${i}" onchange="updateSMSSelection()" checked/></td>
       <td>${i+1}</td>
@@ -6450,7 +6451,7 @@ function generateSMSReminders() {
       <td>${phone}</td>
       <td style="display:flex;gap:6px;flex-wrap:wrap;">
         <button class="tbl-btn" onclick="copySMS(this,'${safeMsg}')"><i class="fas fa-copy"></i> Copy</button>
-        ${phone !== '—' ? `<a class="tbl-btn" href="sms:${phone}?body=${encodeURIComponent(msg)}" style="text-decoration:none;"><i class="fas fa-sms"></i> Send</a>` : `<span class="tbl-btn" style="opacity:.5;cursor:not-allowed;" title="No phone number">No phone</span>`}
+        ${phone !== '-' ? `<a class="tbl-btn" href="sms:${phone}?body=${encodeURIComponent(msg)}" style="text-decoration:none;"><i class="fas fa-sms"></i> Send</a>` : `<span class="tbl-btn" style="opacity:.5;cursor:not-allowed;" title="No phone number">No phone</span>`}
       </td>
     </tr>`;
   }).join('');
@@ -6488,7 +6489,7 @@ function refreshBulkSelection() {
 
 function updateBulkPhoneList() {
   const selected = getSelectedSMSData();
-  const phones   = selected.map(f => f.phone).filter(p => p && p !== '—');
+  const phones   = selected.map(f => f.phone).filter(p => p && p !== '-');
   const el = document.getElementById('bulkPhoneList');
   if (el) el.value = phones.join(', ');
   const cnt = document.getElementById('bulkSelectedCount');
@@ -6516,10 +6517,10 @@ function previewBulkMessages() {
   area.style.display = 'block';
   area.innerHTML = selected.map((f,i) => {
     const msg     = buildSMSMessage(f, template);
-    const phone   = f.phone || '—';
+    const phone   = f.phone || '-';
     const balance = (f.due - f.paid).toFixed(2);
     return `<div style="border-bottom:1px solid var(--border);padding:10px 0;font-size:12px;">
-      <div style="font-weight:700;margin-bottom:4px;color:var(--blue);">${i+1}. ${f.student} (${f.cls}) — <span style="color:var(--red);">GH₵${balance}</span> — 📞 ${phone}</div>
+      <div style="font-weight:700;margin-bottom:4px;color:var(--blue);">${i+1}. ${f.student} (${f.cls}) - <span style="color:var(--red);">GH₵${balance}</span> - 📞 ${phone}</div>
       <div style="color:var(--text-muted);line-height:1.6;">${msg}</div>
     </div>`;
   }).join('');
@@ -6530,7 +6531,7 @@ function downloadSMSReport() {
   const template = document.getElementById('bulkSMSTemplate')?.value || '';
   if (!selected.length) { showToast('⚠️ No recipients selected.'); return; }
   const headers = ['#','Pupil Name','Class','Balance (GH₵)','Phone','Message'];
-  const rows    = selected.map((f,i) => [i+1, f.student, f.cls, (f.due-f.paid).toFixed(2), f.phone||'—', buildSMSMessage(f,template)]);
+  const rows    = selected.map((f,i) => [i+1, f.student, f.cls, (f.due-f.paid).toFixed(2), f.phone||'-', buildSMSMessage(f,template)]);
   downloadCSV(`SMS_Report_${new Date().toLocaleDateString('en-GH').replace(/\//g,'-')}.csv`, headers, rows);
 }
 
@@ -6717,13 +6718,13 @@ function deleteSchool(schoolId) {
   localStorage.removeItem(getSchoolKey(schoolId));
   saveRegistry(reg.filter(s => s.id !== schoolId));
   renderSchoolList();
-  showToast('🗑️ Deleted. Data archived 90 days — restorable.');
+  showToast('🗑️ Deleted. Data archived 90 days - restorable.');
 }
 
 async function showRestoreModal() {
   document.getElementById('restoreSchoolModal').classList.add('open');
   const listEl = document.getElementById('archivedSchoolsList');
-  listEl.innerHTML = '<p style="text-align:center;padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading…</p>';
+  listEl.innerHTML = '<p style="text-align:center;padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading...</p>';
   if (!window._fbReady || !_isOnline) { listEl.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;">Internet required to view archives.</p>'; return; }
   try {
     const snap = await window._fb.get('archives');
@@ -6804,7 +6805,7 @@ function registerNewSchool() {
 
   const btn = document.getElementById('confirmRegisterBtn');
   btn.disabled = true;
-  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting…';
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
 
   submitSchoolRegistration(name, adminName, adminUser, adminPass, phone, email)
     .then(() => {
@@ -6875,7 +6876,7 @@ function attemptLogin() {
             // If local login works, restore local users to state (Firebase was stale)
             if (user) {
               state.users = localData.users;
-              console.log('[login] Firebase users stale — restored from localStorage');
+              console.log('[login] Firebase users stale - restored from localStorage');
             }
           }
         }
@@ -6922,7 +6923,7 @@ function attemptLogin() {
     document.querySelector('.user-role').textContent   = user.role;
     document.querySelector('.user-avatar').textContent = user.name.charAt(0).toUpperCase();
     document.getElementById('sidebarSchoolName').textContent = state.settings.schoolName;
-    // Suppress renders from triggering autosave during startup — we do a single
+    // Suppress renders from triggering autosave during startup - we do a single
     // controlled saveToDB after Firebase data is loaded if needed.
     renderStudents(); renderFees(); renderTeachers(); renderClasses();
     renderGallery(); renderSavedReports(); renderWeekly();
@@ -6943,11 +6944,11 @@ function attemptLogin() {
     if (document.getElementById('currentTerm')) document.getElementById('currentTerm').value = s.term||'';
     applyRoleNav(user);
     resetBtn();
-    // Start realtime sync AFTER data is loaded and rendered — not before
+    // Start realtime sync AFTER data is loaded and rendered - not before
     startRealtimeSync(schoolId);
     // _fbPauseOutgoing is already cleared by loadSchoolDataFromFirebase.
     // The savedAt > _fbKnownSavedAt guard in saveToDB() is the correct
-    // protection against premature pushes — no startup timeout needed.
+    // protection against premature pushes - no startup timeout needed.
     showToast('Welcome back, ' + user.name + ' - ' + state.settings.schoolName);
   };
   if (window._fbReady && _isOnline) {
@@ -6966,10 +6967,10 @@ function attemptLogin() {
 
 // ══════════════════════════════════════
 // ROLE-BASED ACCESS CONTROL (RBAC)
-// The system ALWAYS reads role from state — users can never self-assign
+// The system ALWAYS reads role from state - users can never self-assign
 // ══════════════════════════════════════
 
-// What each role can access — system-defined, never user-input
+// What each role can access - system-defined, never user-input
 const SECTION_ROLES = {
   dashboard:     ['Admin','Teacher'],
   admissions:    ['Admin','Teacher'],
@@ -6994,7 +6995,7 @@ const SECTION_ROLES = {
   backup:        ['Admin'],
 };
 
-// Login attempt tracker — prevents brute-force
+// Login attempt tracker - prevents brute-force
 const _loginAttempts = {};
 const LOGIN_MAX_TRIES = 5;
 const LOGIN_LOCKOUT_MS = 30000; // 30 seconds
@@ -7004,7 +7005,7 @@ function isLoginLocked(schoolId) {
   if (!rec) return false;
   if (rec.count >= LOGIN_MAX_TRIES) {
     if (Date.now() - rec.lastTry < LOGIN_LOCKOUT_MS) return true;
-    // Lockout expired — reset
+    // Lockout expired - reset
     delete _loginAttempts[schoolId];
   }
   return false;
@@ -7022,7 +7023,7 @@ function getRemainingLockout(schoolId) {
   return remaining > 0 ? Math.ceil(remaining / 1000) : 0;
 }
 
-// The ONLY function that decides what a user can see — reads from state, never from user input
+// The ONLY function that decides what a user can see - reads from state, never from user input
 function applyRoleNav(user) {
   const role = user?.role || 'Teacher';
 
@@ -7060,7 +7061,7 @@ function applyRoleNav(user) {
   }
 }
 
-// Guard called every time a section is opened — double-checks access
+// Guard called every time a section is opened - double-checks access
 function guardSection(sectionName) {
   const user = state.currentUser;
   if (!user) { doLogout(); return false; }
@@ -7183,7 +7184,7 @@ function autoCreateStudentUser(pupil) {
   }
   username = attempt;
 
-  // Don't duplicate — check if a linked account already exists
+  // Don't duplicate - check if a linked account already exists
   if (state.users.find(u => u.linkedStudentId === pupil.id)) return;
 
   state.users.push({
@@ -7212,7 +7213,7 @@ function autoCreateTeacherUser(teacher) {
   }
   username = attempt;
 
-  // Don't duplicate — check by name match
+  // Don't duplicate - check by name match
   if (state.users.find(u => u.name === name && u.role === 'Teacher')) return;
 
   state.users.push({
@@ -7238,13 +7239,13 @@ function initLogin() {
   document.getElementById('cancelChangePwdModal').addEventListener('click', ()=>document.getElementById('changePasswordModal').classList.remove('open'));
   document.getElementById('saveNewPasswordBtn').addEventListener('click', saveNewPassword);
 
-  // Register new school — open directly (who can access this page is controlled by the app URL)
+  // Register new school - open directly (who can access this page is controlled by the app URL)
 
-  // Restore deleted school — open directly
+  // Restore deleted school - open directly
   const restoreBtn = document.getElementById('restoreSchoolBtn');
   if (restoreBtn) restoreBtn.addEventListener('click', () => showRestoreModal());
 
-  // Super Admin panel — manage pending registrations
+  // Super Admin panel - manage pending registrations
   const superAdminBtn = document.getElementById('superAdminBtn');
   if (superAdminBtn) superAdminBtn.addEventListener('click', () => {
     document.getElementById('superAdminCode').value = '';
@@ -7303,7 +7304,7 @@ let _passwordsRevealed = false;
 
 function promptShowAllPasswords() {
   if (_passwordsRevealed) {
-    // Already revealed — toggle back to hidden
+    // Already revealed - toggle back to hidden
     _passwordsRevealed = false;
     document.getElementById('showAllPasswordsBtn').innerHTML = '<i class="fas fa-eye"></i> Show All Passwords';
     renderUsers();
@@ -7447,7 +7448,7 @@ function resetUserPassword(id) {
   const u = state.users.find(u=>u.id===id); if (!u) return;
   const newPwd = prompt(`Reset password for "${u.name}" (${u.username}).\n\nEnter new password (min 4 characters):`);
   if (newPwd === null) return;
-  if (newPwd.length < 4) { showToast('⚠️ Password too short — minimum 4 characters.'); return; }
+  if (newPwd.length < 4) { showToast('⚠️ Password too short - minimum 4 characters.'); return; }
   u.password = newPwd;
   u.pwdChangedAt = new Date().toISOString();
   autosave();
@@ -7607,8 +7608,8 @@ function renderExpenditures(filter='', category='') {
       <td><strong>${e.desc}</strong>${e.notes ? `<br><small style="color:var(--text-muted)">${e.notes}</small>` : ''}</td>
       <td><span class="status-pill" style="background:var(--blue-light);color:var(--blue);">${e.category}</span></td>
       <td style="font-weight:700;color:var(--red);">${fmt(e.amount)}</td>
-      <td>${e.date ? new Date(e.date).toLocaleDateString('en-GH') : '—'}</td>
-      <td>${e.receiver||'—'}</td>
+      <td>${e.date ? new Date(e.date).toLocaleDateString('en-GH') : '-'}</td>
+      <td>${e.receiver||'-'}</td>
       <td>
         <button class="tbl-btn" onclick="editExpenditure(${e.id})"><i class="fas fa-edit"></i></button>
         <button class="tbl-btn" onclick="printExpReceipt(${e.id})"><i class="fas fa-receipt"></i></button>
@@ -7742,7 +7743,7 @@ function printExpReceipt(id) {
 <div class="row"><span class="label">Description</span><span class="value">${e.desc}</span></div>
 <div class="row"><span class="label">Category</span><span class="value">${e.category}</span></div>
 <div class="row"><span class="label">Date</span><span class="value">${new Date(e.date).toLocaleDateString('en-GH', {day:'numeric',month:'long',year:'numeric'})}</span></div>
-<div class="row"><span class="label">Received/Paid By</span><span class="value">${e.receiver||'—'}</span></div>
+<div class="row"><span class="label">Received/Paid By</span><span class="value">${e.receiver||'-'}</span></div>
 ${e.notes ? `<div class="row"><span class="label">Notes</span><span class="value">${e.notes}</span></div>` : ''}
 <div class="amount-row">
   <span class="amount-label">Amount Paid</span>
@@ -7750,7 +7751,7 @@ ${e.notes ? `<div class="row"><span class="label">Notes</span><span class="value
 </div>
 <div class="footer">
   <p>Printed on ${new Date().toLocaleString('en-GH')}</p>
-  <p>EduManage Pro — ${s.schoolName||'School'}</p>
+  <p>EduManage Pro - ${s.schoolName||'School'}</p>
 </div>
 <script>window.onload=function(){window.print();}<\/script>
 </body></html>`);
@@ -7786,7 +7787,7 @@ function previewExpenseInvoice() {
             <td>${e.desc}${e.notes?`<br><small>${e.notes}</small>`:''}</td>
             <td>${e.category}</td>
             <td>${new Date(e.date).toLocaleDateString('en-GH')}</td>
-            <td>${e.receiver||'—'}</td>
+            <td>${e.receiver||'-'}</td>
             <td style="font-weight:700;">GH₵${Number(e.amount).toFixed(2)}</td>
           </tr>`).join('')}
         </tbody>
@@ -7874,7 +7875,7 @@ function printExpenseInvoice() {
       <td><strong>${e.desc}</strong>${e.notes?`<br><small style="color:#888">${e.notes}</small>`:''}</td>
       <td>${e.category}</td>
       <td>${new Date(e.date).toLocaleDateString('en-GH')}</td>
-      <td>${e.receiver||'—'}</td>
+      <td>${e.receiver||'-'}</td>
       <td style="text-align:right;font-weight:600;">${Number(e.amount).toFixed(2)}</td>
     </tr>`).join('')}
   </tbody>
@@ -7892,7 +7893,7 @@ function printExpenseInvoice() {
 </div>
 
 <div class="footer">
-  <p>EduManage Pro — ${s.schoolName||'School'} | Generated on ${new Date().toLocaleString('en-GH')}</p>
+  <p>EduManage Pro - ${s.schoolName||'School'} | Generated on ${new Date().toLocaleString('en-GH')}</p>
 </div>
 <script>window.onload=function(){window.print();}<\/script>
 </body></html>`);
@@ -7945,16 +7946,16 @@ function renderResources() {
 
   tbody.innerHTML = data.map((r, i) => `<tr>
     <td>${i+1}</td>
-    <td><strong>${r.title||'—'}</strong>${r.author?`<br><small style="color:var(--text-muted)">${r.author}</small>`:''}</td>
+    <td><strong>${r.title||'-'}</strong>${r.author?`<br><small style="color:var(--text-muted)">${r.author}</small>`:''}</td>
     <td><span style="background:var(--blue-light);color:var(--blue);padding:2px 8px;border-radius:30px;font-size:11px;font-weight:600;white-space:nowrap;">
-      <i class="${typeIcon[r.type]||'fas fa-file'}" style="margin-right:4px;"></i>${r.type||'—'}
+      <i class="${typeIcon[r.type]||'fas fa-file'}" style="margin-right:4px;"></i>${r.type||'-'}
     </span></td>
-    <td>${r.subject||'—'}</td>
-    <td>${r.cls||'—'}</td>
-    <td>${r.term||'—'}${r.year?`<br><small>${r.year}</small>`:''}</td>
+    <td>${r.subject||'-'}</td>
+    <td>${r.cls||'-'}</td>
+    <td>${r.term||'-'}${r.year?`<br><small>${r.year}</small>`:''}</td>
     <td style="text-align:center;font-weight:700;">${r.copies||1}</td>
-    <td><span style="color:${condColor[r.condition]||'var(--text)'};font-weight:600;font-size:12px;">${r.condition||'—'}</span></td>
-    <td style="font-size:12px;">${r.addedBy||'—'}</td>
+    <td><span style="color:${condColor[r.condition]||'var(--text)'};font-weight:600;font-size:12px;">${r.condition||'-'}</span></td>
+    <td style="font-size:12px;">${r.addedBy||'-'}</td>
     <td>
       <button class="tbl-btn" onclick="editResource(${r.id})"><i class="fas fa-edit"></i></button>
       <button class="tbl-btn danger" onclick="deleteResource(${r.id})"><i class="fas fa-trash"></i></button>
@@ -8106,7 +8107,7 @@ function processResFile(file) {
     if(inp){ inp.dataset.fileData=ev.target.result; inp.dataset.fileName=file.name; inp.dataset.fileType=file.type; inp.dataset.fileExt=ext; }
     const titleEl=document.getElementById('resTitle');
     if(titleEl&&!titleEl.value) titleEl.value=file.name.replace(/\.[^.]+$/,'');
-    showToast('File ready — click Save to attach');
+    showToast('File ready - click Save to attach');
   };
   reader.readAsDataURL(file);
 }
@@ -8282,15 +8283,15 @@ function renderExams() {
 
   tbody.innerHTML = data.sort((a,b)=>(a.date||'').localeCompare(b.date||'')).map((e,i) => `<tr>
     <td>${i+1}</td>
-    <td><strong>${e.title||'—'}</strong>${e.invigilator?`<br><small style="color:var(--text-muted)">${e.invigilator}</small>`:''}</td>
-    <td><span style="background:var(--blue-light);color:var(--blue);padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;">${e.type||'—'}</span></td>
-    <td>${e.cls||'—'}</td>
+    <td><strong>${e.title||'-'}</strong>${e.invigilator?`<br><small style="color:var(--text-muted)">${e.invigilator}</small>`:''}</td>
+    <td><span style="background:var(--blue-light);color:var(--blue);padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;">${e.type||'-'}</span></td>
+    <td>${e.cls||'-'}</td>
     <td>${e.subject||'All Subjects'}</td>
-    <td>${e.date ? new Date(e.date+'T00:00').toLocaleDateString('en-GH',{day:'numeric',month:'short',year:'numeric'}) : '—'}</td>
-    <td>${e.time||'—'}</td>
-    <td>${e.duration ? e.duration+' mins' : '—'}</td>
-    <td>${e.venue||'—'}</td>
-    <td><span style="color:${statusColor[e.status]||'var(--text)'};font-weight:700;font-size:12px;">${e.status||'—'}</span></td>
+    <td>${e.date ? new Date(e.date+'T00:00').toLocaleDateString('en-GH',{day:'numeric',month:'short',year:'numeric'}) : '-'}</td>
+    <td>${e.time||'-'}</td>
+    <td>${e.duration ? e.duration+' mins' : '-'}</td>
+    <td>${e.venue||'-'}</td>
+    <td><span style="color:${statusColor[e.status]||'var(--text)'};font-weight:700;font-size:12px;">${e.status||'-'}</span></td>
     <td>
       <button class="tbl-btn" onclick="editExam(${e.id})"><i class="fas fa-edit"></i></button>
       <button class="tbl-btn" onclick="printExamSlip(${e.id})"><i class="fas fa-print"></i></button>
@@ -8307,9 +8308,9 @@ function renderExams() {
       ${upcoming.map(e=>`
         <div class="exam-timetable-row">
           <div style="font-weight:700;">${new Date(e.date+'T00:00').toLocaleDateString('en-GH',{weekday:'short',day:'numeric',month:'short'})}</div>
-          <div><strong>${e.title||'—'}</strong>${e.subject&&e.subject!=='All Subjects'?`<br><small>${e.subject}</small>`:''}</div>
-          <div><strong>${e.cls||'—'}</strong>${e.time?`<br><small>${e.time}${e.duration?' · '+e.duration+' mins':''}</small>`:''}</div>
-          <div><span style="color:${statusColor[e.status]||'var(--text)'};font-weight:700;font-size:12px;">${e.status||'—'}</span></div>
+          <div><strong>${e.title||'-'}</strong>${e.subject&&e.subject!=='All Subjects'?`<br><small>${e.subject}</small>`:''}</div>
+          <div><strong>${e.cls||'-'}</strong>${e.time?`<br><small>${e.time}${e.duration?' · '+e.duration+' mins':''}</small>`:''}</div>
+          <div><span style="color:${statusColor[e.status]||'var(--text)'};font-weight:700;font-size:12px;">${e.status||'-'}</span></div>
         </div>`).join('')}`;
   }
 }
@@ -8389,17 +8390,17 @@ td:first-child{font-weight:700;color:#444;width:160px;}
 <tr><td>Type</td><td>${e.type}</td></tr>
 <tr><td>Class</td><td>${e.cls}</td></tr>
 <tr><td>Subject</td><td>${e.subject||'All Subjects'}</td></tr>
-<tr><td>Date</td><td>${e.date ? new Date(e.date+'T00:00').toLocaleDateString('en-GH',{weekday:'long',day:'numeric',month:'long',year:'numeric'}) : '—'}</td></tr>
-<tr><td>Start Time</td><td>${e.time||'—'}</td></tr>
-<tr><td>Duration</td><td>${e.duration ? e.duration+' minutes' : '—'}</td></tr>
-<tr><td>Venue</td><td>${e.venue||'—'}</td></tr>
-<tr><td>Invigilator</td><td>${e.invigilator||'—'}</td></tr>
+<tr><td>Date</td><td>${e.date ? new Date(e.date+'T00:00').toLocaleDateString('en-GH',{weekday:'long',day:'numeric',month:'long',year:'numeric'}) : '-'}</td></tr>
+<tr><td>Start Time</td><td>${e.time||'-'}</td></tr>
+<tr><td>Duration</td><td>${e.duration ? e.duration+' minutes' : '-'}</td></tr>
+<tr><td>Venue</td><td>${e.venue||'-'}</td></tr>
+<tr><td>Invigilator</td><td>${e.invigilator||'-'}</td></tr>
 <tr><td>Total Marks</td><td>${e.totalMarks||100}</td></tr>
-<tr><td>Term</td><td>${e.term||'—'}</td></tr>
-<tr><td>Academic Year</td><td>${e.year||s.session||'—'}</td></tr>
+<tr><td>Term</td><td>${e.term||'-'}</td></tr>
+<tr><td>Academic Year</td><td>${e.year||s.session||'-'}</td></tr>
 ${e.notes?`<tr><td>Instructions</td><td>${e.notes}</td></tr>`:''}
 </table>
-<div class="footer">EduManage Pro — ${s.schoolName||'School'} | Printed ${new Date().toLocaleString('en-GH')}</div>
+<div class="footer">EduManage Pro - ${s.schoolName||'School'} | Printed ${new Date().toLocaleString('en-GH')}</div>
 <script>window.onload=function(){window.print();}<\/script>
 </body></html>`); win.document.close();
 }
@@ -8459,13 +8460,13 @@ function renderTransfers() {
   }
   tbody.innerHTML = data.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map((t,i) => `<tr>
     <td>${i+1}</td>
-    <td><strong>${t.pupilName||'—'}</strong></td>
-    <td>${t.cls||'—'}</td>
-    <td><span style="color:${typeColor[t.type]||'var(--text)'};font-weight:700;font-size:12px;">${t.type||'—'}</span></td>
-    <td>${t.date ? new Date(t.date+'T00:00').toLocaleDateString('en-GH',{day:'numeric',month:'short',year:'numeric'}) : '—'}</td>
-    <td>${t.fromTo||'—'}</td>
-    <td style="max-width:140px;font-size:12px;">${t.reason||'—'}</td>
-    <td>${t.auth||'—'}</td>
+    <td><strong>${t.pupilName||'-'}</strong></td>
+    <td>${t.cls||'-'}</td>
+    <td><span style="color:${typeColor[t.type]||'var(--text)'};font-weight:700;font-size:12px;">${t.type||'-'}</span></td>
+    <td>${t.date ? new Date(t.date+'T00:00').toLocaleDateString('en-GH',{day:'numeric',month:'short',year:'numeric'}) : '-'}</td>
+    <td>${t.fromTo||'-'}</td>
+    <td style="max-width:140px;font-size:12px;">${t.reason||'-'}</td>
+    <td>${t.auth||'-'}</td>
     <td><span style="font-size:11px;font-weight:600;color:${t.cert&&t.cert!=='No'?'var(--green)':'var(--text-muted)'};">${t.cert||'No'}</span></td>
     <td>
       <button class="tbl-btn" onclick="editTransfer(${t.id})"><i class="fas fa-edit"></i></button>
@@ -8586,7 +8587,7 @@ function printTransferCert(id) {
 <div class="header">
   <div class="school">${s.schoolName||'School Name'}</div>
   <div class="sub">${s.address||''} ${s.district?'| '+s.district:''}</div>
-  <div class="sub">Headmaster: ${s.principal||'—'} &nbsp;|&nbsp; GES Circuit: ${s.district||'—'}</div>
+  <div class="sub">Headmaster: ${s.principal||'-'} &nbsp;|&nbsp; GES Circuit: ${s.district||'-'}</div>
 </div>
 <div style="text-align:center;"><div class="cert-title">${docTitle}</div></div>
 <div class="body">
@@ -8606,7 +8607,7 @@ function printTransferCert(id) {
   <div class="sig-box"><div class="sig-line">Date</div></div>
   <div class="sig-box"><div class="sig-line">Headmaster / Headmistress<br>${s.principal||''}</div></div>
 </div>
-<div class="footer">EduManage Pro — ${s.schoolName||'School'} | Printed ${new Date().toLocaleString('en-GH')} | Official School Stamp: ___________</div>
+<div class="footer">EduManage Pro - ${s.schoolName||'School'} | Printed ${new Date().toLocaleString('en-GH')} | Official School Stamp: ___________</div>
 <script>window.onload=function(){window.print();}<\/script>
 </body></html>`); win.document.close();
 }
@@ -8672,7 +8673,7 @@ function renderAnnouncements() {
       <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--text-light);">
         <span><i class="fas fa-users"></i> ${a.audience}</span>
         ${a.cls&&a.audience==='Class'?`<span><i class="fas fa-school"></i> ${a.cls}</span>`:''}
-        <span><i class="fas fa-clock"></i> ${a.postedAt ? new Date(a.postedAt).toLocaleString('en-GH') : '—'}</span>
+        <span><i class="fas fa-clock"></i> ${a.postedAt ? new Date(a.postedAt).toLocaleString('en-GH') : '-'}</span>
       </div>
     </div>`).join('');
 }
@@ -8736,14 +8737,14 @@ function generateSMSReminders2() {
   tbody.innerHTML = data.map((f,i)=>{
     const bal = (f.due||0)-(f.paid||0);
     const pupil = state.students.find(s=>`${s.first} ${s.last}`===f.student);
-    const phone = pupil?.phone || f.phone || '—';
-    const smsText = `Dear Parent, ${f.student} (${f.cls||pupil?.cls||'—'}) has an outstanding fee balance of GH₵${bal.toFixed(2)}. Please pay ASAP. — ${sc}`;
+    const phone = pupil?.phone || f.phone || '-';
+    const smsText = `Dear Parent, ${f.student} (${f.cls||pupil?.cls||'-'}) has an outstanding fee balance of GH₵${bal.toFixed(2)}. Please pay ASAP. - ${sc}`;
     return `<tr>
-      <td>${i+1}</td><td><strong>${f.student}</strong></td><td>${f.cls||pupil?.cls||'—'}</td>
+      <td>${i+1}</td><td><strong>${f.student}</strong></td><td>${f.cls||pupil?.cls||'-'}</td>
       <td style="font-weight:700;color:var(--red);">GH₵${bal.toFixed(2)}</td>
       <td>${phone}</td>
       <td><button class="tbl-btn" onclick="copySMSMsg(this)" data-sms="${escHtml(smsText)}"><i class="fas fa-copy"></i> Copy</button>
-          ${phone!=='—'?`<a class="tbl-btn" href="sms:${phone}?body=${encodeURIComponent(smsText)}" style="text-decoration:none;"><i class="fas fa-sms"></i> SMS</a>`:''}
+          ${phone!=='-'?`<a class="tbl-btn" href="sms:${phone}?body=${encodeURIComponent(smsText)}" style="text-decoration:none;"><i class="fas fa-sms"></i> SMS</a>`:''}
       </td>
     </tr>`;
   }).join('');
@@ -8780,7 +8781,7 @@ function renderParentNotifications() {
       </div>
       ${pupil?`<div style="font-size:11px;color:var(--blue);margin-bottom:4px;"><i class="fas fa-user-graduate"></i> ${pupil.first} ${pupil.last} (${pupil.cls})</div>`:'<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">All Parents</div>'}
       <p style="font-size:12px;color:var(--text-muted);">${n.message}</p>
-      <div style="font-size:11px;color:var(--text-light);margin-top:6px;"><i class="fas fa-clock"></i> ${n.sentAt ? new Date(n.sentAt).toLocaleString('en-GH') : '—'}</div>
+      <div style="font-size:11px;color:var(--text-light);margin-top:6px;"><i class="fas fa-clock"></i> ${n.sentAt ? new Date(n.sentAt).toLocaleString('en-GH') : '-'}</div>
     </div>`;
   }).join('');
 }
@@ -8858,32 +8859,23 @@ function _portalPupil() {
 
 function printPortalReport(reportId) {
   var r = (state.reports||[]).find(function(rep){ return rep.id === reportId; });
-  if (!r) { showToast("\u26a0\ufe0f Report not found."); return; }
-  var pupil = _portalPupil();
+  if (!r) { showToast("Report not found."); return; }
   var s = state.settings;
   var win = window.open("","_blank");
-  if (!win) { showToast("\u26a0\ufe0f Please allow popups to print."); return; }
-  var subjectRows = (r.subjects||[]).map(function(sub) {
-    return "<tr><td>"+sub.name+"</td><td style=\"text-align:center\">"+(sub.classScore||"\u2014")+"</td><td style=\"text-align:center\">"+(sub.examScore||"\u2014")+"</td><td style=\"text-align:center;font-weight:700;color:"+((sub.total||0)>=50?"#16a34a":"#dc2626")+"\">"+(sub.total||"\u2014")+"</td><td style=\"text-align:center\">"+(sub.grade||"\u2014")+"</td><td>"+(sub.remark||"\u2014")+"</td></tr>";
+  if (!win) { showToast("Please allow popups to print."); return; }
+  var rows = (r.subjects||[]).map(function(sub) {
+    return "<tr><td>"+sub.name+"</td><td>"+(sub.classScore||"-")+"</td><td>"+(sub.examScore||"-")+"</td><td>"+(sub.total||"-")+"</td><td>"+(sub.grade||"-")+"</td></tr>";
   }).join("");
   win.document.write("<!DOCTYPE html><html><head><title>Report Card</title>"
-    +"<style>body{font-family:'Segoe UI',Arial,sans-serif;padding:20px;max-width:700px;margin:auto;}"
-    +".header{text-align:center;border-bottom:2px solid #1a6fd4;padding-bottom:12px;margin-bottom:16px;}"
-    +".school{font-size:18px;font-weight:800;color:#1a6fd4;}"
-    +"table{width:100%;border-collapse:collapse;font-size:13px;}"
-    +"th{background:#1a6fd4;color:#fff;padding:7px 10px;text-align:left;}"
-    +"td{padding:6px 10px;border-bottom:1px solid #f0f0f0;}"
-    +"</style></head><body>"
-    +"<div class=\"header\"><div class=\"school\">"+(s.schoolName||"School")+"</div>"
-    +"<div style=\"font-size:12px;color:#666\">"+(s.address||"")+"</div>"
-    +"<div style=\"font-weight:700;margin-top:4px\">TERMINAL REPORT \u2014 "+(r.term||"")+" "+(r.year||"")+"</div></div>"
-    +"<p><strong>Name:</strong> "+(r.studentName||"")+" &nbsp; <strong>Class:</strong> "+(r.cls||"")+" &nbsp; <strong>Position:</strong> "+(r.position||"\u2014")+" / "+(r.classSize||"\u2014")+"</p>"
-    +"<table><thead><tr><th>Subject</th><th>Class Score</th><th>Exam Score</th><th>Total</th><th>Grade</th><th>Remark</th></tr></thead><tbody>"
-    +subjectRows
-    +"</tbody></table>"
-    +(r.remarks?"<p><strong>Teacher's Remarks:</strong> "+r.remarks+"</p>":"")
-    +"<script>window.onload=function(){window.print();}<\/script>"
-    +"</body></html>");
+    +"<style>body{font-family:Arial,sans-serif;padding:20px;max-width:700px;margin:auto;}"
+    +"table{width:100%;border-collapse:collapse;}th,td{border:1px solid #ddd;padding:8px;text-align:left;}"
+    +"th{background:#1a6fd4;color:#fff;}</style></head><body>"
+    +"<h2 style='color:#1a6fd4;text-align:center'>"+(s.schoolName||"School")+"</h2>"
+    +"<p><strong>Name:</strong> "+(r.studentName||"")+" | <strong>Class:</strong> "+(r.cls||"")+" | <strong>Term:</strong> "+(r.term||"")+" "+(r.year||"")+"</p>"
+    +"<table><tr><th>Subject</th><th>Class Score</th><th>Exam Score</th><th>Total</th><th>Grade</th></tr>"
+    +rows+"</table>"
+    +(r.remarks?"<p><strong>Remarks:</strong> "+r.remarks+"</p>":"")
+    +"<script>window.onload=function(){window.print();}<\/script></body></html>");
   win.document.close();
 }
 
@@ -8901,7 +8893,7 @@ function renderPortalFees() {
           ${pupil.photo ? `<img src="${pupil.photo}" style="width:60px;height:60px;border-radius:50%;object-fit:cover;border:3px solid var(--blue);">` : `<div style="width:60px;height:60px;border-radius:50%;background:var(--blue);color:#fff;display:grid;place-items:center;font-size:24px;font-weight:700;">${(pupil.first||'?').charAt(0)}</div>`}
           <div>
             <h2 style="font-size:18px;font-weight:800;color:var(--text);">${pupil.first} ${pupil.last}</h2>
-            <p style="font-size:13px;color:var(--text-muted);">Class: <strong>${pupil.cls}</strong> &nbsp;|&nbsp; Academic Year: <strong>${s.session||'—'}</strong></p>
+            <p style="font-size:13px;color:var(--text-muted);">Class: <strong>${pupil.cls}</strong> &nbsp;|&nbsp; Academic Year: <strong>${s.session||'-'}</strong></p>
           </div>
         </div>
         ${feeRec ? `
@@ -8920,7 +8912,7 @@ function renderPortalFees() {
             </div>
           </div>
           <div style="padding:10px 14px;background:var(--bg);border-radius:8px;font-size:13px;">
-            <strong>Term:</strong> ${feeRec.term||s.term||'—'} &nbsp;|&nbsp;
+            <strong>Term:</strong> ${feeRec.term||s.term||'-'} &nbsp;|&nbsp;
             <strong>Status:</strong> <span style="font-weight:700;color:${feeRec.status==='Paid'?'var(--green)':feeRec.status==='Partial'?'var(--yellow)':'var(--red)'};">${feeRec.status||'Unpaid'}</span>
           </div>
           <button class="btn-ghost" style="margin-top:12px;" onclick="printPortalFeeReceipt()"><i class="fas fa-print"></i> Print Fee Statement</button>`
@@ -8940,17 +8932,16 @@ function renderPortalResults() {
   panel.innerHTML = `<div style="display:grid;gap:16px;">` + reports.map(r => `
     <div class="card">
       <div class="card-head">
-        <h2 class="card-title"><i class="fas fa-file-alt"></i> ${r.term||'—'} — ${r.year||'—'}</h2>
-        <button class="btn-ghost" onclick="viewPortalReport(${r.id})" style="font-size:12px;"><i class="fas fa-eye"></i> View</button>
-        <button class="btn-ghost" onclick="printPortalReport(${r.id})" style="font-size:12px;"><i class="fas fa-print"></i> Print</button>
+        <h2 class="card-title"><i class="fas fa-file-alt"></i> ${r.term||'-'} - ${r.year||'-'}</h2>
+        <button class="btn-ghost" onclick="viewPortalReport(${r.id})" style="font-size:12px;"><i class="fas fa-eye"></i> View</button> <button class="btn-ghost" onclick="printPortalReport(${r.id})" style="font-size:12px;"><i class="fas fa-print"></i> Print</button>
       </div>
-      <p style="font-size:13px;color:var(--text-muted);">Class: <strong>${r.cls||pupil.cls}</strong> &nbsp;|&nbsp; Position: <strong>${r.position||'—'}</strong> / ${r.classSize||'—'}</p>
+      <p style="font-size:13px;color:var(--text-muted);">Class: <strong>${r.cls||pupil.cls}</strong> &nbsp;|&nbsp; Position: <strong>${r.position||'-'}</strong> / ${r.classSize||'-'}</p>
       ${r.subjects && r.subjects.length ? `
         <div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;">
           ${r.subjects.map(sub=>`
             <div style="background:var(--bg);border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;">
               <span style="font-size:12px;font-weight:600;">${sub.name}</span>
-              <span style="font-size:14px;font-weight:800;color:${sub.total>=50?'var(--green)':'var(--red)'};">${sub.total||'—'}</span>
+              <span style="font-size:14px;font-weight:800;color:${sub.total>=50?'var(--green)':'var(--red)'};">${sub.total||'-'}</span>
             </div>`).join('')}
         </div>` : ''}
     </div>`).join('') + `</div>`;
@@ -8964,16 +8955,16 @@ function renderPortalExams() {
   let exams = (state.exams||[]).filter(e => e.status!=='Cancelled' && (e.cls==='All Classes' || e.cls===pupil?.cls));
   exams = exams.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
   if (!exams.length) { panel.innerHTML = `<div class="card"><div style="text-align:center;padding:30px;color:var(--text-muted);"><i class="fas fa-calendar-alt" style="font-size:32px;display:block;margin-bottom:10px;"></i>No upcoming exams at this time.</div></div>`; return; }
-  panel.innerHTML = `<div class="card"><div class="card-head"><h2 class="card-title"><i class="fas fa-calendar-alt"></i> Exam Schedule${pupil?` — ${pupil.cls}`:''}</h2></div>
+  panel.innerHTML = `<div class="card"><div class="card-head"><h2 class="card-title"><i class="fas fa-calendar-alt"></i> Exam Schedule${pupil?` - ${pupil.cls}`:''}</h2></div>
     <div class="table-wrap"><table class="data-table">
       <thead><tr><th>Date</th><th>Exam</th><th>Type</th><th>Subject</th><th>Time</th><th>Venue</th></tr></thead>
       <tbody>${exams.map(e=>`<tr style="${e.date>=today?'':'opacity:.6'}">
-        <td><strong>${e.date?new Date(e.date+'T00:00').toLocaleDateString('en-GH',{weekday:'short',day:'numeric',month:'short',year:'numeric'}):'—'}</strong></td>
+        <td><strong>${e.date?new Date(e.date+'T00:00').toLocaleDateString('en-GH',{weekday:'short',day:'numeric',month:'short',year:'numeric'}):'-'}</strong></td>
         <td>${e.title}</td>
         <td><span style="background:var(--blue-light);color:var(--blue);padding:2px 8px;border-radius:20px;font-size:11px;">${e.type}</span></td>
         <td>${e.subject||'All'}</td>
-        <td>${e.time||'—'}${e.duration?` (${e.duration} mins)`:''}</td>
-        <td>${e.venue||'—'}</td>
+        <td>${e.time||'-'}${e.duration?` (${e.duration} mins)`:''}</td>
+        <td>${e.venue||'-'}</td>
       </tr>`).join('')}</tbody>
     </table></div></div>`;
 }
@@ -9032,7 +9023,7 @@ function renderPortalNotices() {
     notices.map(a => `<div class="card ann-card" style="background:${prioBg[a.priority]||'var(--bg)'};">
       <div style="font-size:14px;font-weight:700;margin-bottom:6px;">${prioIcon[a.priority]||'📢'} ${a.title}</div>
       <p style="font-size:13px;color:var(--text-muted);">${a.message}</p>
-      <div style="font-size:11px;color:var(--text-light);margin-top:8px;"><i class="fas fa-clock"></i> ${a.postedAt?new Date(a.postedAt).toLocaleString('en-GH'):'—'}</div>
+      <div style="font-size:11px;color:var(--text-light);margin-top:8px;"><i class="fas fa-clock"></i> ${a.postedAt?new Date(a.postedAt).toLocaleString('en-GH'):'-'}</div>
     </div>`).join('') + `</div>`;
 }
 
@@ -9051,12 +9042,12 @@ function printPortalFeeReceipt() {
 <div class="header"><div class="school">${s.schoolName}</div><div style="font-size:12px;color:#666;">${s.address||''}</div><div style="font-weight:700;font-size:14px;margin-top:6px;">FEE STATEMENT</div></div>
 <div class="row"><span class="label">Pupil Name</span><span class="value">${pupil.first} ${pupil.last}</span></div>
 <div class="row"><span class="label">Class</span><span class="value">${pupil.cls}</span></div>
-<div class="row"><span class="label">Term</span><span class="value">${feeRec.term||s.term||'—'}</span></div>
-<div class="row"><span class="label">Academic Year</span><span class="value">${s.session||'—'}</span></div>
+<div class="row"><span class="label">Term</span><span class="value">${feeRec.term||s.term||'-'}</span></div>
+<div class="row"><span class="label">Academic Year</span><span class="value">${s.session||'-'}</span></div>
 <div class="row"><span class="label">Total Fee Due</span><span class="value">GH₵${(feeRec.due||0).toFixed(2)}</span></div>
 <div class="row"><span class="label">Amount Paid</span><span class="value" style="color:#16a34a;">GH₵${(feeRec.paid||0).toFixed(2)}</span></div>
 <div class="total"><span style="font-weight:700;color:#1a6fd4;">Outstanding Balance</span><span style="font-size:18px;font-weight:800;color:${((feeRec.due||0)-(feeRec.paid||0))<=0?'#16a34a':'#dc2626'};">GH₵${((feeRec.due||0)-(feeRec.paid||0)).toFixed(2)}</span></div>
-<p style="text-align:center;font-size:11px;color:#999;margin-top:20px;">Printed ${new Date().toLocaleString('en-GH')} — EduManage Pro</p>
+<p style="text-align:center;font-size:11px;color:#999;margin-top:20px;">Printed ${new Date().toLocaleString('en-GH')} - EduManage Pro</p>
 <script>window.onload=function(){window.print();}<\/script>
 </body></html>`); win.document.close();
 }
