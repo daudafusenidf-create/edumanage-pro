@@ -1,4 +1,4 @@
-window._EDUMANAGE_VERSION = 'v2026.SYNC.FINAL.8';
+window._EDUMANAGE_VERSION = 'v2026.SYNC.FINAL.9';
 /* ════════════════════════════════════════
    EduManage Pro - GES Edition
    Full Application Logic
@@ -4269,10 +4269,10 @@ function saveFee() {
 
   // Always derive due from fee structure - never accept manual input
   const structAmt = getFeeFromStructure(cls, term, year);
-  if (structAmt === null || structAmt <= 0) {
-    showToast('⚠️ No fee set for ' + cls + ' · ' + term + '. Set it in Fee Structure first.'); return;
-  }
-  const due = structAmt;
+  const fDueEl = document.getElementById('fDue');
+  const manualAmt = fDueEl ? parseFloat(fDueEl.value) || 0 : 0;
+  const due = (structAmt !== null && structAmt > 0) ? structAmt : manualAmt;
+  if (due <= 0) { showToast('Please enter the fee amount due.'); return; }
 
   const totalPaid = _feePaymentDraft.reduce((a,p) => a + p.amt, 0);
   const totalDue  = due + arrears;
@@ -8829,7 +8829,7 @@ function showStudentPortal(user) {
   document.getElementById('portalSchoolName').textContent = state.settings.schoolName || 'EduManage Pro';
   document.getElementById('portalUserName').textContent   = user.name;
 
-  switchPortalTab('fees');
+  switchPortalTab('results');
 }
 
 function switchPortalTab(tab) {
@@ -8883,6 +8883,13 @@ function renderPortalFees() {
   const panel = document.getElementById('portalPanelFees');
   const pupil = _portalPupil();
   if (!panel) return;
+  if (!pupil) {
+    panel.innerHTML = '<div class="card" style="text-align:center;padding:30px;">'
+      + '<i class="fas fa-exclamation-circle" style="font-size:40px;color:#f59e0b;display:block;margin-bottom:12px;"></i>'
+      + '<p style="color:var(--text-muted);">Account not linked to a student record. Contact your school admin.</p>'
+      + '</div>';
+    return;
+  }
   if (!pupil) { panel.innerHTML = `<div class="card"><p style="color:var(--text-muted);"><i class="fas fa-exclamation-circle"></i> No pupil linked to this account. Please contact the school administrator.</p></div>`; return; }
   const feeRec = state.fees.find(f => f.studentId===pupil.id || f.student===`${pupil.first} ${pupil.last}`);
   const s = state.settings;
@@ -8925,15 +8932,22 @@ function renderPortalResults() {
   const panel = document.getElementById('portalPanelResults');
   const pupil = _portalPupil();
   if (!panel) return;
-  if (!pupil) { panel.innerHTML = `<div class="card"><p style="color:var(--text-muted);">No pupil linked to this account.</p></div>`; return; }
-  const fullName = `${pupil.first} ${pupil.last}`;
-  const reports  = (state.reports||[]).filter(r => r.studentName === fullName || r.studentId === pupil.id);
+  if (!pupil) {
+    panel.innerHTML = '<div class="card" style="text-align:center;padding:30px;">'
+      + '<i class="fas fa-exclamation-circle" style="font-size:40px;color:#f59e0b;display:block;margin-bottom:12px;"></i>'
+      + '<h3 style="margin-bottom:8px;">Account Not Linked</h3>'
+      + '<p style="color:var(--text-muted);font-size:13px;">Your account is not linked to a student record.<br>Please ask your school admin to link your account in the Users section.</p>'
+      + '</div>';
+    return;
+  }
+  const fullName = pupil.first + ' ' + pupil.last;
+  const reports  = (state.reports||[]).filter(function(r){ return r.studentName === fullName || r.studentId === pupil.id; });
   if (!reports.length) { panel.innerHTML = `<div class="card"><div style="text-align:center;padding:30px;color:var(--text-muted);"><i class="fas fa-chart-bar" style="font-size:32px;display:block;margin-bottom:10px;"></i>No report cards available yet.</div></div>`; return; }
   panel.innerHTML = `<div style="display:grid;gap:16px;">` + reports.map(r => `
     <div class="card">
       <div class="card-head">
         <h2 class="card-title"><i class="fas fa-file-alt"></i> ${r.term||'-'} - ${r.year||'-'}</h2>
-        <button class="btn-ghost" onclick="viewPortalReport(${r.id})" style="font-size:12px;"><i class="fas fa-eye"></i> View</button> <button class="btn-ghost" onclick="printPortalReport(${r.id})" style="font-size:12px;"><i class="fas fa-print"></i> Print</button>
+        <button class="btn-ghost" onclick="viewPortalReport(${r.id})" style="font-size:12px;"><i class="fas fa-eye"></i> View</button> <button class="btn-ghost" onclick="printPortalReport(${r.id})" style="font-size:12px;"><i class="fas fa-print"></i> Print</button> <button class="btn-ghost" onclick="printPortalReport(${r.id})" style="font-size:12px;"><i class="fas fa-print"></i> Print</button>
       </div>
       <p style="font-size:13px;color:var(--text-muted);">Class: <strong>${r.cls||pupil.cls}</strong> &nbsp;|&nbsp; Position: <strong>${r.position||'-'}</strong> / ${r.classSize||'-'}</p>
       ${r.subjects && r.subjects.length ? `
