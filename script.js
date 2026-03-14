@@ -872,6 +872,25 @@ function saveToDB() {
 }
 
 // Load a school's data into state
+// ── REPORTS LOADER ──
+// Centralised helper used by loadSchoolData and the backup restore.
+// Handles both the flat state.reports array and the nested _reportsDict lookup.
+function _loadReports(data) {
+  if (data.reports !== undefined)      state.reports      = data.reports;
+  if (data._reportsDict !== undefined) state._reportsDict = data._reportsDict;
+  // Rebuild _reportsDict from reports array if dict is missing (legacy data)
+  if (state.reports && state.reports.length && (!state._reportsDict || !Object.keys(state._reportsDict).length)) {
+    state._reportsDict = {};
+    state.reports.forEach(r => {
+      if (!r || !r.studentId) return;
+      if (!state._reportsDict[r.studentId]) state._reportsDict[r.studentId] = {};
+      const yr = r.year || 'unknown';
+      if (!state._reportsDict[r.studentId][yr]) state._reportsDict[r.studentId][yr] = {};
+      if (r.term) state._reportsDict[r.studentId][yr][r.term] = r;
+    });
+  }
+}
+
 function loadSchoolData(schoolKey) {
   try {
     const raw = localStorage.getItem(schoolKey);
