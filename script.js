@@ -1,9 +1,9 @@
 /* ════════════════════════════════════════
    EduManage Pro — GES Edition
    Full Application Logic
-   VERSION: v2026.SYNC.FINAL.5
+   VERSION: v2026.SYNC.FINAL.6
 ════════════════════════════════════════ */
-window._EDUMANAGE_VERSION = 'v2026.SYNC.FINAL.5';
+window._EDUMANAGE_VERSION = 'v2026.SYNC.FINAL.6';
 
 // ════════════════════════════════════════
 // MULTI-SCHOOL DATABASE ARCHITECTURE
@@ -2177,43 +2177,19 @@ function restoreStudent(id) {
 }
 
 function initStudentPhotoUpload() {
-  document.getElementById('sPhotoInput').addEventListener('change', async e => {
+  document.getElementById('sPhotoInput').addEventListener('change', function(e) {
     const file = e.target.files[0]; if (!file) return;
-    if (!file.type.startsWith('image/')) { showToast('⚠️ Select an image file.'); return; }
-
+    if (!file.type.startsWith('image/')) { showToast('\u26a0\ufe0f Select an image file.'); return; }
     const prev = document.getElementById('sPhotoPreview');
-
-    // Always read as base64 first — this guarantees a working preview
-    // and a valid fallback if Firebase Storage upload fails
-    const base64 = await new Promise(res => {
-      const reader = new FileReader();
-      reader.onload = ev => res(ev.target.result);
-      reader.readAsDataURL(file);
-    });
-
-    // Show preview immediately using base64
-    prev.src = base64;
-    prev.style.display = 'block';
-    prev.dataset.photo = base64; // default to base64 unless cloud upload succeeds
-
-    // Try Firebase Storage upload for permanent cloud URL
-    if (window._fbStorage && window._fbReady && _isOnline) {
-      try {
-        showToast('⏳ Uploading photo to cloud…');
-        const schoolId = _currentSchoolKey ? _currentSchoolKey.replace('edumanage_school_', '') : 'unknown';
-        const ext  = file.name.split('.').pop() || 'jpg';
-        const path = `schools/${schoolId}/student_photos/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-        const url  = await window._fbStorage.upload(path, file);
-        prev.src = url;
-        prev.dataset.photo = url; // replace base64 with permanent cloud URL
-        showToast('✅ Photo uploaded to cloud!');
-      } catch(err) {
-        console.warn('[Storage] Student photo upload failed:', err);
-        // base64 is already set in prev.dataset.photo — photo still works locally
-        showToast('⚠️ Cloud upload failed — photo saved locally. Check Firebase Storage rules.');
-      }
-    }
-    // If offline or Storage not ready, base64 is already set above — nothing more to do
+    // Read as base64 — works offline, no Firebase Storage rules needed
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+      const b64 = ev.target.result;
+      prev.src = b64;
+      prev.style.display = 'block';
+      prev.dataset.photo = b64;
+    };
+    reader.readAsDataURL(file);
   });
 }
 
@@ -4492,43 +4468,26 @@ function initGallery() {
     currentAlbumId = null;
     renderGallery();
   });
-  document.getElementById('photoUploadInput').addEventListener('change', async e => {
+  document.getElementById('photoUploadInput').addEventListener('change', function(e) {
     const album = state.albums.find(a=>a.id===currentAlbumId);
     if (!album) return;
     const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
     if (!files.length) return;
     e.target.value = '';
-
-    let uploaded = 0;
-    showToast(`⏳ Uploading ${files.length} photo(s)…`);
-
-    for (const file of files) {
-      let src;
-      // Always read base64 first as guaranteed fallback
-      src = await new Promise(res => {
-        const r = new FileReader();
-        r.onload = ev => res(ev.target.result);
-        r.readAsDataURL(file);
-      });
-      // Try cloud upload — replaces base64 src with permanent URL if successful
-      if (window._fbStorage && window._fbReady && _isOnline) {
-        try {
-          const schoolId = _currentSchoolKey ? _currentSchoolKey.replace('edumanage_school_', '') : 'unknown';
-          const ext  = file.name.split('.').pop() || 'jpg';
-          const path = `schools/${schoolId}/gallery/${album.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-          src = await window._fbStorage.upload(path, file);
-        } catch(err) {
-          console.warn('[Storage] Gallery photo upload failed:', err);
-          // src stays as base64 — photo still works locally
+    let loaded = 0;
+    files.forEach(function(file) {
+      const reader = new FileReader();
+      reader.onload = function(ev) {
+        album.photos.push({ src: ev.target.result, name: file.name });
+        loaded++;
+        if (loaded === files.length) {
+          renderAlbumPhotos(album);
+          saveToDB();
+          showToast('\u2705 ' + loaded + ' photo(s) added!');
         }
-      }
-      album.photos.push({ src, name: file.name });
-      uploaded++;
-    }
-
-    renderAlbumPhotos(album);
-    saveToDB();
-    showToast(`✅ ${uploaded} photo(s) uploaded!`);
+      };
+      reader.readAsDataURL(file);
+    });
   });
   document.getElementById('printAllPhotosBtn').addEventListener('click',()=>{
     const album = state.albums.find(a=>a.id===currentAlbumId);
@@ -4951,37 +4910,18 @@ function initLogo() {
 
   if (state.schoolLogo) applyLogo(state.schoolLogo);
 
-  fileInput.addEventListener('change', async e => {
-    const file=e.target.files[0]; if (!file) return;
-    if (!file.type.startsWith('image/')){ showToast('⚠️ Please select an image file.'); return; }
-    if (file.size>2*1024*1024){ showToast('⚠️ Image must be under 2MB.'); return; }
-
-    // Always read as base64 first — works offline and as fallback
-    const base64Logo = await new Promise(res => {
-      const r = new FileReader();
-      r.onload = ev => res(ev.target.result);
-      r.readAsDataURL(file);
-    });
-    state.schoolLogo = base64Logo;
-    applyLogo(base64Logo);
-
-    // Try cloud upload — replaces base64 with permanent URL if successful
-    if (window._fbStorage && window._fbReady && _isOnline) {
-      try {
-        showToast('⏳ Uploading logo to cloud…');
-        const schoolId = _currentSchoolKey ? _currentSchoolKey.replace('edumanage_school_', '') : 'unknown';
-        const ext  = file.name.split('.').pop() || 'png';
-        const path = `schools/${schoolId}/logo/school_logo.${ext}`;
-        const url  = await window._fbStorage.upload(path, file);
-        state.schoolLogo = url;
-        applyLogo(url);
-        showToast('✅ Logo uploaded to cloud!');
-      } catch(err) {
-        console.warn('[Storage] Logo upload failed:', err);
-        showToast('⚠️ Cloud upload failed — logo saved locally.');
-      }
-    }
-    saveToDB();
+  fileInput.addEventListener('change', function(e) {
+    const file = e.target.files[0]; if (!file) return;
+    if (!file.type.startsWith('image/')){ showToast('\u26a0\ufe0f Please select an image file.'); return; }
+    if (file.size > 2*1024*1024){ showToast('\u26a0\ufe0f Image must be under 2MB.'); return; }
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+      state.schoolLogo = ev.target.result;
+      applyLogo(ev.target.result);
+      saveToDB();
+      showToast('\u2705 School logo uploaded!');
+    };
+    reader.readAsDataURL(file);
   });
 
   removeBtn.addEventListener('click',()=>{
