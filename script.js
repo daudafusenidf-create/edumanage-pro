@@ -1,9 +1,9 @@
 /* ════════════════════════════════════════
    EduManage Pro — GES Edition
    Full Application Logic
-   VERSION: v2026.SYNC.FINAL
+   VERSION: v2026.SYNC.FINAL.3
 ════════════════════════════════════════ */
-window._EDUMANAGE_VERSION = 'v2026.SYNC.FINAL';
+window._EDUMANAGE_VERSION = 'v2026.SYNC.FINAL.3';
 
 // ════════════════════════════════════════
 // MULTI-SCHOOL DATABASE ARCHITECTURE
@@ -839,28 +839,26 @@ function saveToDB() {
     // 1. Always save locally first
     localStorage.setItem(_currentSchoolKey, JSON.stringify(data));
 
-    // 2. Push to Firebase — guards:
-    //    _fbDataLoaded: we must have loaded from Firebase first this session
-    //    savedAt > _fbKnownSavedAt: only push if we loaded data before this moment
-    //    (on fresh page load _fbKnownSavedAt=0, so we wait until loadSchoolDataFromFirebase
-    //     sets it, after which any save with a newer timestamp is legitimate)
-    if (window._fbReady && _isOnline && _fbDataLoaded && !_fbPauseOutgoing && savedAt > _fbKnownSavedAt) {
+    // 2. Push to Firebase whenever online and user is logged in.
+    // No timestamp guard — it was causing legitimate saves to be silently
+    // dropped whenever savedAt <= _fbKnownSavedAt (same millisecond saves,
+    // or saves made right after login). The _fbPauseIncoming flag handles
+    // echo suppression. _fbDataLoaded ensures Firebase has been contacted
+    // at least once this session before we push.
+    if (window._fbReady && _isOnline && _fbDataLoaded && state.currentUser) {
       const schoolId = _currentSchoolKey.replace('edumanage_school_', '');
       showSyncStatus('saving');
-      _fbPauseIncoming = true; // suppress our own echo
-      _fbKnownSavedAt = savedAt; // Update our known timestamp immediately
+      _fbPauseIncoming = true;
+      _fbKnownSavedAt = savedAt;
       window._fb.set(fbSchoolPath(schoolId), data)
         .then(() => {
           showSyncStatus('online');
-          markSaved(); // Only mark as saved once Firebase confirms
-          // FIX BUG 3: Extended from 2000ms to 5000ms — on slow connections the
-          // Firebase echo arrived after 2s, triggering an overwrite of fresh data.
+          markSaved();
           setTimeout(() => { _fbPauseIncoming = false; }, 5000);
         })
         .catch(e => {
           console.warn('[FB] Save to Firebase failed:', e);
           _fbPauseIncoming = false;
-          _fbKnownSavedAt = savedAt - 1; // Roll back so next save retries
           showSyncStatus('offline');
           showToast('⚠️ Cloud save failed — data saved locally only.');
         });
@@ -7005,7 +7003,6 @@ function attemptLogin() {
       .then(() => { if (!done) { done=true; clearTimeout(timer); proceed(); } })
       .catch(() => { if (!done) { done=true; clearTimeout(timer); proceed(); } });
   } else {
-    loadSchoolData(schoolKey);
     proceed();
   }
 }
