@@ -1,10 +1,10 @@
 /* ════════════════════════════════════════
    EduManage Pro — GES Edition
    Full Application Logic
-   PATCHED VERSION — v2026.SYNC.FIXED
-   Verify live: open browser console and type: console.log(window._EDUMANAGE_VERSION)
+   PATCHED: v2026.SYNC.FIXED.2
+   Verify: console.log(window._EDUMANAGE_VERSION)
 ════════════════════════════════════════ */
-window._EDUMANAGE_VERSION = 'v2026.SYNC.FIXED — DO NOT OVERWRITE WITH OLD FILES';
+window._EDUMANAGE_VERSION = 'v2026.SYNC.FIXED.2';
 
 // ════════════════════════════════════════
 // MULTI-SCHOOL DATABASE ARCHITECTURE
@@ -79,12 +79,7 @@ function startRealtimeSync(schoolId) {
     // Always mark as loaded when we receive any Firebase data
     if (!_fbDataLoaded) {
       _fbDataLoaded = true;
-      // *** CRITICAL FIX — DO NOT REVERT ***
-      // Must use fbSavedAt here, NOT Date.now().
-      // Date.now() sets _fbKnownSavedAt to "right now", so the guard
-      // (savedAt > _fbKnownSavedAt) in saveToDB() always fails for saves
-      // made within milliseconds of login — Firebase push is silently skipped
-      // and data saves to localStorage only, never reaching other devices.
+      // CRITICAL FIX: Use real Firebase timestamp, NOT Date.now()
       _fbKnownSavedAt = fbSavedAt;
     }
     // Track highest savedAt seen from Firebase for subsequent syncs
@@ -7003,14 +6998,24 @@ function attemptLogin() {
     // protection against premature pushes — no startup timeout needed.
     showToast('Welcome back, ' + user.name + ' - ' + state.settings.schoolName);
   };
-  loadSchoolData(schoolKey);
   if (window._fbReady && _isOnline) {
+    // Load local data first so app feels instant while Firebase loads
+    loadSchoolData(schoolKey);
     let done = false;
     const timer = setTimeout(() => { if (!done) { done=true; proceed(); } }, 6000);
     loadSchoolDataFromFirebase(schoolId)
-      .then(() => { if (!done) { done=true; clearTimeout(timer); proceed(); } })
-      .catch(() => { if (!done) { done=true; clearTimeout(timer); proceed(); } });
+      .then(() => {
+        // loadSchoolDataFromFirebase already called loadSchoolData(schoolKey)
+        // internally with the correct Firebase data, so state is now up to date.
+        if (!done) { done=true; clearTimeout(timer); proceed(); }
+      })
+      .catch(() => {
+        // Firebase failed — proceed with whatever local data we loaded above
+        if (!done) { done=true; clearTimeout(timer); proceed(); }
+      });
   } else {
+    // Offline — load from localStorage only
+    loadSchoolData(schoolKey);
     proceed();
   }
 }
