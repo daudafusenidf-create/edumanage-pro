@@ -1,9 +1,9 @@
 /* ════════════════════════════════════════
    EduManage Pro — GES Edition
    Full Application Logic
-   VERSION: v2026.SYNC.FINAL.4
+   VERSION: v2026.DIAG.1
 ════════════════════════════════════════ */
-window._EDUMANAGE_VERSION = 'v2026.SYNC.FINAL.4';
+window._EDUMANAGE_VERSION = 'v2026.DIAG.1';
 
 // ════════════════════════════════════════
 // MULTI-SCHOOL DATABASE ARCHITECTURE
@@ -78,7 +78,6 @@ function startRealtimeSync(schoolId) {
     // Always mark as loaded when we receive any Firebase data
     if (!_fbDataLoaded) {
       _fbDataLoaded = true;
-      // FIX A: real Firebase timestamp, not Date.now()
       _fbKnownSavedAt = fbSavedAt;
     }
     // Track highest savedAt seen from Firebase for subsequent syncs
@@ -164,7 +163,6 @@ async function loadSchoolDataFromFirebase(schoolId) {
   if (!window._fbReady) throw new Error('Firebase not ready');
   const snap = await window._fb.get(fbSchoolPath(schoolId));
   if (!snap.exists()) {
-    // Firebase has no data yet — this is a brand new school, safe to push local
     _fbDataLoaded = true;
     throw new Error('No data in Firebase');
   }
@@ -172,6 +170,12 @@ async function loadSchoolDataFromFirebase(schoolId) {
   const localJson = localStorage.getItem(getSchoolKey(schoolId));
   const localSavedAt = localJson ? (JSON.parse(localJson).savedAt || 0) : 0;
   const fbSavedAt    = fbData.savedAt || 0;
+
+  // DIAGNOSTIC — remove after sync is confirmed working
+  console.log('[SYNC] fbSavedAt=' + fbSavedAt + ' localSavedAt=' + localSavedAt +
+    ' fbWins=' + (fbSavedAt >= localSavedAt) +
+    ' fbSchoolName=' + (fbData.settings && fbData.settings.schoolName) +
+    ' localSchoolName=' + (localJson && JSON.parse(localJson).settings && JSON.parse(localJson).settings.schoolName));
 
   if (fbSavedAt >= localSavedAt) {
     // Firebase is newer or equal — use Firebase as source of truth
@@ -838,27 +842,31 @@ function saveToDB() {
 
     // 1. Always save locally first
     localStorage.setItem(_currentSchoolKey, JSON.stringify(data));
+    console.log('[SYNC] saveToDB schoolName=' + (data.settings && data.settings.schoolName) + ' savedAt=' + savedAt);
 
     // 2. Push to Firebase — guards:
     //    _fbDataLoaded: we must have loaded from Firebase first this session
     //    savedAt > _fbKnownSavedAt: only push if we loaded data before this moment
     //    (on fresh page load _fbKnownSavedAt=0, so we wait until loadSchoolDataFromFirebase
     //     sets it, after which any save with a newer timestamp is legitimate)
-    // Push to Firebase whenever online and logged in — no timestamp guard needed
+    // No timestamp guard — push to Firebase on every save while online
     if (window._fbReady && _isOnline && _fbDataLoaded && state.currentUser) {
       const schoolId = _currentSchoolKey.replace('edumanage_school_', '');
       showSyncStatus('saving');
-      _fbPauseIncoming = true;
-      _fbKnownSavedAt = savedAt;
+      _fbPauseIncoming = true; // suppress our own echo
+      _fbKnownSavedAt = savedAt; // Update our known timestamp immediately
       window._fb.set(fbSchoolPath(schoolId), data)
         .then(() => {
           showSyncStatus('online');
-          markSaved();
+          markSaved(); // Only mark as saved once Firebase confirms
+          // FIX BUG 3: Extended from 2000ms to 5000ms — on slow connections the
+          // Firebase echo arrived after 2s, triggering an overwrite of fresh data.
           setTimeout(() => { _fbPauseIncoming = false; }, 5000);
         })
         .catch(e => {
           console.warn('[FB] Save to Firebase failed:', e);
           _fbPauseIncoming = false;
+          _fbKnownSavedAt = savedAt - 1; // Roll back so next save retries
           showSyncStatus('offline');
           showToast('⚠️ Cloud save failed — data saved locally only.');
         });
@@ -873,13 +881,10 @@ function saveToDB() {
 
 // Load a school's data into state
 
-// ── REPORTS LOADER (required by loadSchoolData and backup restore) ──
 function _loadReports(data) {
   if (data.reports !== undefined)      state.reports      = data.reports;
   if (data._reportsDict !== undefined) state._reportsDict = data._reportsDict;
-  // Rebuild _reportsDict from flat reports array if dict is missing (legacy data)
-  if (state.reports && state.reports.length &&
-      (!state._reportsDict || !Object.keys(state._reportsDict).length)) {
+  if (state.reports && state.reports.length && (!state._reportsDict || !Object.keys(state._reportsDict).length)) {
     state._reportsDict = {};
     state.reports.forEach(r => {
       if (!r || !r.studentId) return;
