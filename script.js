@@ -78,7 +78,7 @@ function startRealtimeSync(schoolId) {
     // Always mark as loaded when we receive any Firebase data
     if (!_fbDataLoaded) {
       _fbDataLoaded = true;
-      _fbKnownSavedAt = fbSavedAt;
+      _fbKnownSavedAt = fbSavedAt; // FIX: real timestamp not Date.now()
     }
     // Track highest savedAt seen from Firebase for subsequent syncs
     if (fbSavedAt > _fbKnownSavedAt) _fbKnownSavedAt = fbSavedAt;
@@ -846,22 +846,19 @@ function saveToDB() {
     if (window._fbReady && _isOnline && _fbDataLoaded && state.currentUser) {
       const schoolId = _currentSchoolKey.replace('edumanage_school_', '');
       showSyncStatus('saving');
-      _fbPauseIncoming = true; // suppress our own echo
-      _fbKnownSavedAt = savedAt; // Update our known timestamp immediately
+      _fbPauseIncoming = true;
+      _fbKnownSavedAt = savedAt;
       window._fb.set(fbSchoolPath(schoolId), data)
         .then(() => {
           showSyncStatus('online');
-          markSaved(); // Only mark as saved once Firebase confirms
-          // FIX BUG 3: Extended from 2000ms to 5000ms — on slow connections the
-          // Firebase echo arrived after 2s, triggering an overwrite of fresh data.
+          markSaved();
           setTimeout(() => { _fbPauseIncoming = false; }, 5000);
         })
-        .catch(e => {
+        .catch(function(e) {
           console.warn('[FB] Save to Firebase failed:', e);
           _fbPauseIncoming = false;
-          _fbKnownSavedAt = savedAt - 1; // Roll back so next save retries
           showSyncStatus('offline');
-          showToast('⚠️ Cloud save failed — data saved locally only.');
+          showToast('\u26a0\ufe0f Cloud save failed \u2014 data saved locally only.');
         });
     }
 
@@ -883,7 +880,7 @@ function _loadReports(data) {
     state.reports.forEach(function(r) {
       if (!r || !r.studentId) return;
       if (!state._reportsDict[r.studentId]) state._reportsDict[r.studentId] = {};
-      var yr = r.year || 'unknown';
+      var yr = r.year || "unknown";
       if (!state._reportsDict[r.studentId][yr]) state._reportsDict[r.studentId][yr] = {};
       if (r.term) state._reportsDict[r.studentId][yr][r.term] = r;
     });
@@ -2179,10 +2176,10 @@ function restoreStudent(id) {
 
 function initStudentPhotoUpload() {
   document.getElementById('sPhotoInput').addEventListener('change', function(e) {
-    const file = e.target.files[0]; if (!file) return;
+    var file = e.target.files[0]; if (!file) return;
     if (!file.type.startsWith('image/')) { showToast('\u26a0\ufe0f Select an image file.'); return; }
-    const prev = document.getElementById('sPhotoPreview');
-    const reader = new FileReader();
+    var prev = document.getElementById('sPhotoPreview');
+    var reader = new FileReader();
     reader.onload = function(ev) {
       prev.src = ev.target.result;
       prev.style.display = 'block';
@@ -3726,7 +3723,7 @@ function printPaymentStatement() {
   w.document.close();
 }
 
-let _feesInited = false;
+var _feesInited = false;
 function initFees() {
   renderFees();
   if (_feesInited) return; _feesInited = true;
@@ -4470,15 +4467,15 @@ function initGallery() {
     renderGallery();
   });
   document.getElementById('photoUploadInput').addEventListener('change', function(e) {
-    const album = state.albums.find(a=>a.id===currentAlbumId);
+    var album = state.albums.find(function(a){ return a.id===currentAlbumId; });
     if (!album) return;
     if (!album.photos) album.photos = [];
-    const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
+    var files = Array.from(e.target.files).filter(function(f){ return f.type.startsWith('image/'); });
     if (!files.length) return;
     e.target.value = '';
-    let loaded = 0;
+    var loaded = 0;
     files.forEach(function(file) {
-      const reader = new FileReader();
+      var reader = new FileReader();
       reader.onload = function(ev) {
         album.photos.push({ src: ev.target.result, name: file.name });
         loaded++;
@@ -4913,10 +4910,10 @@ function initLogo() {
   if (state.schoolLogo) applyLogo(state.schoolLogo);
 
   fileInput.addEventListener('change', function(e) {
-    const file = e.target.files[0]; if (!file) return;
+    var file = e.target.files[0]; if (!file) return;
     if (!file.type.startsWith('image/')){ showToast('\u26a0\ufe0f Please select an image file.'); return; }
     if (file.size > 2*1024*1024){ showToast('\u26a0\ufe0f Image must be under 2MB.'); return; }
-    const reader = new FileReader();
+    var reader = new FileReader();
     reader.onload = function(ev) {
       state.schoolLogo = ev.target.result;
       applyLogo(ev.target.result);
@@ -8860,45 +8857,33 @@ function _portalPupil() {
 
 
 function printPortalReport(reportId) {
-  const r = (state.reports||[]).find(rep => rep.id === reportId);
-  if (!r) { showToast('\u26a0\ufe0f Report not found.'); return; }
-  const pupil = _portalPupil();
-  const s = state.settings;
-  const win = window.open('','_blank');
-  if (!win) { showToast('\u26a0\ufe0f Please allow popups to print.'); return; }
-  const subjectRows = (r.subjects||[]).map(sub =>
-    `<tr><td>${sub.name}</td><td style="text-align:center">${sub.classScore||'—'}</td><td style="text-align:center">${sub.examScore||'—'}</td><td style="text-align:center;font-weight:700;color:${(sub.total||0)>=50?'#16a34a':'#dc2626'}">${sub.total||'—'}</td><td style="text-align:center">${sub.grade||'—'}</td><td>${sub.remark||'—'}</td></tr>`
-  ).join('');
-  win.document.write(`<!DOCTYPE html><html><head><title>Report Card</title>
-<style>body{font-family:'Segoe UI',Arial,sans-serif;padding:20px;max-width:700px;margin:auto;color:#222;}
-.header{text-align:center;border-bottom:2px solid #1a6fd4;padding-bottom:12px;margin-bottom:16px;}
-.school{font-size:18px;font-weight:800;color:#1a6fd4;}
-.info{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px;font-size:13px;}
-table{width:100%;border-collapse:collapse;font-size:13px;}
-th{background:#1a6fd4;color:#fff;padding:7px 10px;text-align:left;}
-td{padding:6px 10px;border-bottom:1px solid #f0f0f0;}
-.footer{margin-top:16px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;font-size:12px;}
-.sig{border-top:1px solid #999;padding-top:4px;text-align:center;color:#666;}
-</style></head><body>
-<div class="header"><div class="school">${s.schoolName||'School'}</div>
-<div style="font-size:12px;color:#666">${s.address||''}</div>
-<div style="font-weight:700;margin-top:4px;">TERMINAL REPORT — ${r.term||''} ${r.year||''}</div></div>
-<div class="info">
-<div><strong>Name:</strong> ${r.studentName||((pupil&&pupil.first+' '+pupil.last)||'—')}</div>
-<div><strong>Class:</strong> ${r.cls||''}</div>
-<div><strong>Position:</strong> ${r.position||'—'} / ${r.classSize||'—'}</div>
-<div><strong>Attendance:</strong> ${r.attendance||'—'}</div>
-</div>
-<table><thead><tr><th>Subject</th><th>Class Score</th><th>Exam Score</th><th>Total</th><th>Grade</th><th>Remark</th></tr></thead>
-<tbody>${subjectRows}</tbody></table>
-${r.remarks ? `<div style="margin-top:12px;font-size:13px;"><strong>Class Teacher's Remarks:</strong> ${r.remarks}</div>` : ''}
-<div class="footer">
-<div class="sig">Class Teacher<br><br>________________</div>
-<div class="sig">Head Teacher<br><br>________________</div>
-<div class="sig">Next Term Begins<br><br>${r.nextTermDate||'________________'}</div>
-</div>
-<script>window.onload=function(){window.print();}<\/script>
-</body></html>`);
+  var r = (state.reports||[]).find(function(rep){ return rep.id === reportId; });
+  if (!r) { showToast("\u26a0\ufe0f Report not found."); return; }
+  var pupil = _portalPupil();
+  var s = state.settings;
+  var win = window.open("","_blank");
+  if (!win) { showToast("\u26a0\ufe0f Please allow popups to print."); return; }
+  var subjectRows = (r.subjects||[]).map(function(sub) {
+    return "<tr><td>"+sub.name+"</td><td style=\"text-align:center\">"+(sub.classScore||"\u2014")+"</td><td style=\"text-align:center\">"+(sub.examScore||"\u2014")+"</td><td style=\"text-align:center;font-weight:700;color:"+((sub.total||0)>=50?"#16a34a":"#dc2626")+"\">"+(sub.total||"\u2014")+"</td><td style=\"text-align:center\">"+(sub.grade||"\u2014")+"</td><td>"+(sub.remark||"\u2014")+"</td></tr>";
+  }).join("");
+  win.document.write("<!DOCTYPE html><html><head><title>Report Card</title>"
+    +"<style>body{font-family:'Segoe UI',Arial,sans-serif;padding:20px;max-width:700px;margin:auto;}"
+    +".header{text-align:center;border-bottom:2px solid #1a6fd4;padding-bottom:12px;margin-bottom:16px;}"
+    +".school{font-size:18px;font-weight:800;color:#1a6fd4;}"
+    +"table{width:100%;border-collapse:collapse;font-size:13px;}"
+    +"th{background:#1a6fd4;color:#fff;padding:7px 10px;text-align:left;}"
+    +"td{padding:6px 10px;border-bottom:1px solid #f0f0f0;}"
+    +"</style></head><body>"
+    +"<div class=\"header\"><div class=\"school\">"+(s.schoolName||"School")+"</div>"
+    +"<div style=\"font-size:12px;color:#666\">"+(s.address||"")+"</div>"
+    +"<div style=\"font-weight:700;margin-top:4px\">TERMINAL REPORT \u2014 "+(r.term||"")+" "+(r.year||"")+"</div></div>"
+    +"<p><strong>Name:</strong> "+(r.studentName||"")+" &nbsp; <strong>Class:</strong> "+(r.cls||"")+" &nbsp; <strong>Position:</strong> "+(r.position||"\u2014")+" / "+(r.classSize||"\u2014")+"</p>"
+    +"<table><thead><tr><th>Subject</th><th>Class Score</th><th>Exam Score</th><th>Total</th><th>Grade</th><th>Remark</th></tr></thead><tbody>"
+    +subjectRows
+    +"</tbody></table>"
+    +(r.remarks?"<p><strong>Teacher's Remarks:</strong> "+r.remarks+"</p>":"")
+    +"<script>window.onload=function(){window.print();}<\/script>"
+    +"</body></html>");
   win.document.close();
 }
 
@@ -8948,18 +8933,16 @@ function renderPortalResults() {
   const panel = document.getElementById('portalPanelResults');
   const pupil = _portalPupil();
   if (!panel) return;
-  if (!pupil) { panel.innerHTML = `<div class="card"><div style="text-align:center;padding:30px;color:var(--text-muted);"><i class="fas fa-exclamation-circle" style="font-size:32px;display:block;margin-bottom:10px;color:var(--red);"></i><strong>No pupil linked to this account.</strong><br><small>Please ask your school admin to link your account to a student record.</small></div></div>`; return; }
-  const fullName = \`\${pupil.first} \${pupil.last}\`;
+  if (!pupil) { panel.innerHTML = `<div class="card"><p style="color:var(--text-muted);">No pupil linked to this account.</p></div>`; return; }
+  const fullName = `${pupil.first} ${pupil.last}`;
   const reports  = (state.reports||[]).filter(r => r.studentName === fullName || r.studentId === pupil.id);
-  if (!reports.length) { panel.innerHTML = `<div class="card"><div style="text-align:center;padding:30px;color:var(--text-muted);"><i class="fas fa-chart-bar" style="font-size:32px;display:block;margin-bottom:10px;"></i>No report cards available yet.<br><small>Reports will appear here once your teacher submits them.</small></div></div>`; return; }
-  panel.innerHTML = `<div style="display:grid;gap:16px;">` + reports.map(r => \`
+  if (!reports.length) { panel.innerHTML = `<div class="card"><div style="text-align:center;padding:30px;color:var(--text-muted);"><i class="fas fa-chart-bar" style="font-size:32px;display:block;margin-bottom:10px;"></i>No report cards available yet.</div></div>`; return; }
+  panel.innerHTML = `<div style="display:grid;gap:16px;">` + reports.map(r => `
     <div class="card">
       <div class="card-head">
-        <h2 class="card-title"><i class="fas fa-file-alt"></i> \${r.term||'—'} — \${r.year||'—'}</h2>
-        <div style="display:flex;gap:8px;">
-          <button class="btn-ghost" onclick="viewPortalReport(\${r.id})" style="font-size:12px;"><i class="fas fa-eye"></i> View</button>
-          <button class="btn-ghost" onclick="printPortalReport(\${r.id})" style="font-size:12px;"><i class="fas fa-print"></i> Print</button>
-        </div>
+        <h2 class="card-title"><i class="fas fa-file-alt"></i> ${r.term||'—'} — ${r.year||'—'}</h2>
+        <button class="btn-ghost" onclick="viewPortalReport(${r.id})" style="font-size:12px;"><i class="fas fa-eye"></i> View</button>
+        <button class="btn-ghost" onclick="printPortalReport(${r.id})" style="font-size:12px;"><i class="fas fa-print"></i> Print</button>
       </div>
       <p style="font-size:13px;color:var(--text-muted);">Class: <strong>${r.cls||pupil.cls}</strong> &nbsp;|&nbsp; Position: <strong>${r.position||'—'}</strong> / ${r.classSize||'—'}</p>
       ${r.subjects && r.subjects.length ? `
