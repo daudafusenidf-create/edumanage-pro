@@ -371,6 +371,7 @@
         Remember me on this device
       </label>
       <button class="btn-primary" id="loginBtn" style="width:100%;margin-top:12px;justify-content:center;"><i class="fas fa-sign-in-alt"></i> Sign In</button>
+      <div style="text-align:center;margin-top:8px;"><button type="button" class="btn-link" onclick="forgotPassword()" style="font-size:12px;color:var(--blue);background:none;border:none;cursor:pointer;padding:0;"><i class="fas fa-key"></i> Forgot password? (Admin email only)</button></div>
       <button class="btn-ghost" id="backToSchoolsBtn" style="width:100%;margin-top:8px;justify-content:center;"><i class="fas fa-arrow-left"></i> Back to Schools</button>
       <button class="btn-ghost" onclick="document.getElementById('recoveryRequestModal').classList.add('open')" style="width:100%;margin-top:6px;justify-content:center;font-size:12px;opacity:.65;"><i class="fas fa-key"></i> Forgot Username / Password?</button>
     </div>
@@ -1990,6 +1991,7 @@
             <input type="hidden" id="uEditId"/>
             <div class="form-group"><label>Full Name</label><input type="text" class="form-input" id="uName" placeholder="e.g. Mr. Kwame Asante"/></div>
             <div class="form-group"><label>Username</label><input type="text" class="form-input" id="uUsername" placeholder="e.g. teacher2" autocomplete="off"/></div>
+            <div class="form-group" id="uEmailRow"><label>Email Address <span style="font-size:11px;color:var(--text-muted);">(required for Admin — used for Firebase Auth login)</span></label><input type="email" class="form-input" id="uEmail" placeholder="e.g. admin@school.edu.gh" autocomplete="off"/></div>
             <div class="form-group" id="uPasswordRow">
               <label>Password</label>
               <div class="password-input-wrap">
@@ -2582,18 +2584,25 @@
   </div>
 
   <div class="toast" id="toast"></div>
-  <!-- Firebase SDK -->
-  <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script type="module">
-    import { initializeApp }                          from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getDatabase, ref, set, get, onValue, off, child, update }
-                                                      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+  <!-- Firebase SDK: Firestore + Auth + Storage -->
+  <script type="module">
+    import { initializeApp }
+      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import {
+      getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc,
+      collection, getDocs, onSnapshot
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    import {
+      getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+      signOut, onAuthStateChanged, sendPasswordResetEmail, updatePassword,
+      EmailAuthProvider, reauthenticateWithCredential
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
     import { getStorage, ref as sRef, uploadBytes, getDownloadURL, deleteObject }
-                                                      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
     const firebaseConfig = {
       apiKey:            "AIzaSyDPJH-3D1cbHO6el13qWj36DBc9DT_j9sQ",
       authDomain:        "edumanage-pro-138c3.firebaseapp.com",
-      databaseURL:       "https://edumanage-pro-138c3-default-rtdb.europe-west1.firebasedatabase.app",
       projectId:         "edumanage-pro-138c3",
       storageBucket:     "edumanage-pro-138c3.firebasestorage.app",
       messagingSenderId: "346727146216",
@@ -2601,23 +2610,99 @@
     };
 
     const fbApp   = initializeApp(firebaseConfig);
-    const db      = getDatabase(fbApp);
+    const db      = getFirestore(fbApp);
+    const auth    = getAuth(fbApp);
     const storage = getStorage(fbApp);
 
-    // ── Expose Firebase helpers to global scope for script.js ──
+    // ── Path helper: converts "a/b/c/d" to Firestore doc/collection ref ──
+    function pathToRef(path) {
+      const parts = path.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+      if (parts.length === 0) throw new Error('Empty Firestore path');
+      if (parts.length % 2 === 0) {
+        let r = doc(db, parts[0], parts[1]);
+        for (let i = 2; i < parts.length; i += 2) r = doc(r, parts[i], parts[i+1]);
+        return { type: 'doc', ref: r };
+      } else {
+        let r = collection(db, parts[0]);
+        for (let i = 1; i < parts.length - 1; i += 2) r = collection(doc(r, parts[i]), parts[i+1]);
+        return { type: 'collection', ref: r };
+      }
+    }
+
+    // ── Snap wrapper: makes Firestore snaps look like Realtime DB snaps ──
+    function wrapSnap(fsSnap) {
+      if (fsSnap.docs) {
+        const combined = {};
+        fsSnap.docs.forEach(d => { combined[d.id] = d.data(); });
+        return { exists: () => fsSnap.docs.length > 0, val: () => fsSnap.docs.length > 0 ? combined : null };
+      }
+      return { exists: () => fsSnap.exists(), val: () => fsSnap.exists() ? fsSnap.data() : null };
+    }
+
+    // ── window._fb: Firestore with same API as old Realtime DB layer ──
     window._fb = {
       db,
-      ref:    (path)              => ref(db, path),
-      set:    (path, val)         => set(ref(db, path), val),
-      get:    (path)              => get(ref(db, path)),
-      update: (path, val)         => update(ref(db, path), val),
-      onValue: (ref, cb, err) => onValue(ref, cb, err),
-      off:    (ref)           => off(ref),
+      ref: (path) => pathToRef(path).ref,
+
+      set: async (path, val) => {
+        if (val === null) {
+          const { type, ref } = pathToRef(path);
+          if (type === 'doc') return deleteDoc(ref);
+          return;
+        }
+        const { type, ref } = pathToRef(path);
+        if (type === 'doc') return setDoc(ref, val);
+        throw new Error('Cannot set a collection path: ' + path);
+      },
+
+      get: async (path) => {
+        const { type, ref } = pathToRef(path);
+        if (type === 'doc') return wrapSnap(await getDoc(ref));
+        return wrapSnap(await getDocs(ref));
+      },
+
+      update: async (path, val) => {
+        const { type, ref } = pathToRef(path);
+        if (type !== 'doc') throw new Error('Cannot update a collection: ' + path);
+        try { return await updateDoc(ref, val); }
+        catch(e) { return setDoc(ref, val, { merge: true }); }
+      },
+
+      onValue: (ref, cb, errCb) => onSnapshot(ref, (snap) => cb(wrapSnap(snap)), errCb || (() => {})),
+      off: () => {}  // Firestore listeners stopped via returned unsubscribe fn
+    };
+
+    // ── window._fbAuth: Firebase Authentication for admin email/password ──
+    window._fbAuth = {
+      // Sign in — returns Firebase UserCredential
+      signIn: (email, password) => signInWithEmailAndPassword(auth, email, password),
+
+      // Register a new admin Firebase Auth account
+      createUser: (email, password) => createUserWithEmailAndPassword(auth, email, password),
+
+      // Sign out of Firebase Auth
+      signOut: () => signOut(auth).catch(() => {}),
+
+      // Send password reset email
+      sendPasswordReset: (email) => sendPasswordResetEmail(auth, email),
+
+      // Change password with re-authentication
+      updatePassword: async (currentPassword, newPassword) => {
+        const user = auth.currentUser;
+        if (!user || !user.email) throw new Error('Not signed in via Firebase Auth');
+        const cred = EmailAuthProvider.credential(user.email, currentPassword);
+        await reauthenticateWithCredential(user, cred);
+        await updatePassword(user, newPassword);
+      },
+
+      // Current Firebase Auth user (null if not signed in via Auth)
+      currentUser: () => auth.currentUser,
+
+      // Listen for auth state changes
+      onAuthStateChanged: (cb) => onAuthStateChanged(auth, cb),
     };
 
     // ── Firebase Storage helpers ──
-    // uploadToStorage(path, file) → resolves with public download URL
-    // deleteFromStorage(url)      → deletes by download URL (best-effort)
     window._fbStorage = {
       upload: async (storagePath, file) => {
         const fileRef = sRef(storage, storagePath);
@@ -2626,19 +2711,16 @@
       },
       delete: async (url) => {
         try {
-          // Extract the storage path from the download URL
           const decodedUrl = decodeURIComponent(url);
           const match = decodedUrl.match(/\/o\/(.+?)\?/);
           if (!match) return;
-          const path = match[1];
-          const fileRef = sRef(storage, path);
-          await deleteObject(fileRef);
+          await deleteObject(sRef(storage, match[1]));
         } catch(e) { console.warn('[Storage] delete failed:', e); }
       }
     };
 
     window._fbReady = true;
   </script>
-  <script src="script.js" defer></script>
+    <script src="script.js" defer></script>
 </body>
 </html>
