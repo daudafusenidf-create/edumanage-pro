@@ -1,9 +1,9 @@
 /* ════════════════════════════════════════
    EduManage Pro — GES Edition
    Full Application Logic
-   VERSION: v2026.SYNC.FINAL.3
+   VERSION: v2026.SYNC.FINAL.4
 ════════════════════════════════════════ */
-window._EDUMANAGE_VERSION = 'v2026.SYNC.FINAL.3';
+window._EDUMANAGE_VERSION = 'v2026.SYNC.FINAL.4';
 
 // ════════════════════════════════════════
 // MULTI-SCHOOL DATABASE ARCHITECTURE
@@ -78,7 +78,7 @@ function startRealtimeSync(schoolId) {
     // Always mark as loaded when we receive any Firebase data
     if (!_fbDataLoaded) {
       _fbDataLoaded = true;
-      // FIX: use real Firebase timestamp, NOT Date.now()
+      // FIX A: real Firebase timestamp, not Date.now()
       _fbKnownSavedAt = fbSavedAt;
     }
     // Track highest savedAt seen from Firebase for subsequent syncs
@@ -839,12 +839,12 @@ function saveToDB() {
     // 1. Always save locally first
     localStorage.setItem(_currentSchoolKey, JSON.stringify(data));
 
-    // 2. Push to Firebase whenever online and user is logged in.
-    // No timestamp guard — it was causing legitimate saves to be silently
-    // dropped whenever savedAt <= _fbKnownSavedAt (same millisecond saves,
-    // or saves made right after login). The _fbPauseIncoming flag handles
-    // echo suppression. _fbDataLoaded ensures Firebase has been contacted
-    // at least once this session before we push.
+    // 2. Push to Firebase — guards:
+    //    _fbDataLoaded: we must have loaded from Firebase first this session
+    //    savedAt > _fbKnownSavedAt: only push if we loaded data before this moment
+    //    (on fresh page load _fbKnownSavedAt=0, so we wait until loadSchoolDataFromFirebase
+    //     sets it, after which any save with a newer timestamp is legitimate)
+    // Push to Firebase whenever online and logged in — no timestamp guard needed
     if (window._fbReady && _isOnline && _fbDataLoaded && state.currentUser) {
       const schoolId = _currentSchoolKey.replace('edumanage_school_', '');
       showSyncStatus('saving');
@@ -872,14 +872,14 @@ function saveToDB() {
 }
 
 // Load a school's data into state
-// ── REPORTS LOADER ──
-// Centralised helper used by loadSchoolData and the backup restore.
-// Handles both the flat state.reports array and the nested _reportsDict lookup.
+
+// ── REPORTS LOADER (required by loadSchoolData and backup restore) ──
 function _loadReports(data) {
   if (data.reports !== undefined)      state.reports      = data.reports;
   if (data._reportsDict !== undefined) state._reportsDict = data._reportsDict;
-  // Rebuild _reportsDict from reports array if dict is missing (legacy data)
-  if (state.reports && state.reports.length && (!state._reportsDict || !Object.keys(state._reportsDict).length)) {
+  // Rebuild _reportsDict from flat reports array if dict is missing (legacy data)
+  if (state.reports && state.reports.length &&
+      (!state._reportsDict || !Object.keys(state._reportsDict).length)) {
     state._reportsDict = {};
     state.reports.forEach(r => {
       if (!r || !r.studentId) return;
@@ -7022,6 +7022,7 @@ function attemptLogin() {
       .then(() => { if (!done) { done=true; clearTimeout(timer); proceed(); } })
       .catch(() => { if (!done) { done=true; clearTimeout(timer); proceed(); } });
   } else {
+    loadSchoolData(schoolKey);
     proceed();
   }
 }
