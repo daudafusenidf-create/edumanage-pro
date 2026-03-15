@@ -54,11 +54,11 @@ function fbSchoolPath(schoolId) {
 }
 
 function showSyncStatus(status) {
-  const el = document.getElementById('syncStatus');
+  const el = document.getElementById('syncStatusBadge');
   if (!el) return;
-  if (status === 'online')  { el.innerHTML = '<i class="fas fa-circle" style="color:#22c55e;font-size:8px;"></i> Synced'; el.style.color='#22c55e'; }
-  if (status === 'offline') { el.innerHTML = '<i class="fas fa-circle" style="color:#f59e0b;font-size:8px;"></i> Offline'; el.style.color='#f59e0b'; }
-  if (status === 'saving')  { el.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size:9px;"></i> Saving...'; el.style.color='var(--text-muted)'; }
+  if (status === 'online')  { el.innerHTML = '<i class="fas fa-wifi"></i> Live Sync'; el.style.background='var(--green)'; }
+  if (status === 'offline') { el.innerHTML = '<i class="fas fa-wifi-slash"></i> Offline'; el.style.background='#f59e0b'; }
+  if (status === 'saving')  { el.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...'; el.style.background='var(--blue)'; }
 }
 
 function startRealtimeSync(schoolId) {
@@ -1215,7 +1215,7 @@ function showToast(msg, dur=3200) {
   setTimeout(() => t.classList.remove('show'), dur);
 }
 
-function fmt(n) { return 'GH₵' + Number(n).toLocaleString(); }
+function fmt(n) { return 'GH₵' + Number(n).toLocaleString('en-GH', {minimumFractionDigits:2, maximumFractionDigits:2}); }
 function getStatus(due, paid) { return paid >= due ? 'Paid' : paid > 0 ? 'Partial' : 'Unpaid'; }
 function statusPill(s) {
   const m = { Paid:'pill-paid', Partial:'pill-partial', Unpaid:'pill-unpaid' };
@@ -1424,11 +1424,13 @@ function autoCreateFeeRecord(pupil) {
       student:     name,
       cls:         pupil.cls,
       studentId:   pupil.id,
-      studentUID:  pupil.uid || null,    // permanent ID cross-reference
+      studentUID:  pupil.uid || null,
       term,
-      year:        academicYear,          // ✅ always stamped with academic year
+      year:        academicYear,
       due:         0,
       paid:        0,
+      payments:    [],
+      arrears:     0,
       ...auditCreate(),
     });
   }
@@ -1512,10 +1514,10 @@ function updateDashStats() {
   if (el('totalTeachers')) el('totalTeachers').textContent = state.teachers.length;
 
   // ── FEES ──
-  const totalC = state.fees.reduce((a,f) => a + f.paid, 0);
-  const totalP = state.fees.filter(f => getStatus(f.due,f.paid) !== 'Paid').length;
-  const totalOutAmt = state.fees.reduce((a,f) => a + Math.max(0, f.due - f.paid), 0);
-  const pctPaid = state.fees.length ? Math.round(state.fees.filter(f=>getStatus(f.due,f.paid)==='Paid').length / state.fees.length * 100) : 0;
+  const totalC = state.fees.reduce((a,f) => a + totalPaidForRecord(f), 0);
+  const totalP = state.fees.filter(f => getStatus(getDueForRecord(f)+(f.arrears||0), totalPaidForRecord(f)) !== 'Paid').length;
+  const totalOutAmt = state.fees.reduce((a,f) => a + Math.max(0, getDueForRecord(f)+(f.arrears||0) - totalPaidForRecord(f)), 0);
+  const pctPaid = state.fees.length ? Math.round(state.fees.filter(f=>getStatus(getDueForRecord(f)+(f.arrears||0), totalPaidForRecord(f))==='Paid').length / state.fees.length * 100) : 0;
   if (el('totalCollected')) el('totalCollected').textContent = fmt(totalC);
   if (el('totalOutstanding')) el('totalOutstanding').textContent = fmt(totalOutAmt);
   if (el('feePctDash')) el('feePctDash').innerHTML = `<i class="fas fa-arrow-up"></i> ${pctPaid}% paid`;
@@ -1553,12 +1555,12 @@ function updateDashLiveSummary() {
   const total = state.students.length;
   const males = state.students.filter(s => s.gender === 'Male').length;
   const females = state.students.filter(s => s.gender === 'Female').length;
-  const paid = state.fees.filter(f => getStatus(f.due,f.paid) === 'Paid').length;
-  const partial = state.fees.filter(f => getStatus(f.due,f.paid) === 'Partial').length;
-  const unpaid = state.fees.filter(f => getStatus(f.due,f.paid) === 'Unpaid').length;
-  const feesWithDue = state.fees.filter(f => f.due > 0).length;
-  const totalDue = state.fees.reduce((a,f) => a + f.due, 0);
-  const totalPaid = state.fees.reduce((a,f) => a + f.paid, 0);
+  const paid = state.fees.filter(f => getStatus(getDueForRecord(f)+(f.arrears||0), totalPaidForRecord(f)) === 'Paid').length;
+  const partial = state.fees.filter(f => getStatus(getDueForRecord(f)+(f.arrears||0), totalPaidForRecord(f)) === 'Partial').length;
+  const unpaid = state.fees.filter(f => getStatus(getDueForRecord(f)+(f.arrears||0), totalPaidForRecord(f)) === 'Unpaid').length;
+  const feesWithDue = state.fees.filter(f => getDueForRecord(f) > 0).length;
+  const totalDue = state.fees.reduce((a,f) => a + getDueForRecord(f)+(f.arrears||0), 0);
+  const totalPaid = state.fees.reduce((a,f) => a + totalPaidForRecord(f), 0);
   const totalBal = totalDue - totalPaid;
   const attRecords = (state.attendance || []).length;
   const presentRec = (state.attendance || []).filter(a => a.status === 'Present').length;
@@ -3574,6 +3576,18 @@ function updateFeeStats() {
 }
 
 function showArrearsReport() {
+  // Reset modal to arrears view (in case it was previously used for student statement)
+  const modal = document.getElementById('arrearsModal');
+  if (modal) {
+    const h3 = modal.querySelector('h3');
+    if (h3) h3.innerHTML = '<i class="fas fa-exclamation-circle" style="color:var(--red);"></i> Fee Arrears Report';
+    const cf = modal.querySelector('#arrearsClassFilter');
+    const sf = modal.querySelector('#arrearsSortFilter');
+    const pb = modal.querySelector('.btn-primary[onclick*="printArrears"]');
+    if (cf) cf.style.display = '';
+    if (sf) sf.style.display = '';
+    if (pb) pb.style.display = '';
+  }
   // Populate class filter
   const classes = [...new Set(state.fees.map(f => f.cls).filter(Boolean))].sort();
   const cf = document.getElementById('arrearsClassFilter');
@@ -3585,9 +3599,18 @@ function showArrearsReport() {
 function renderArrearsTable() {
   const clsF  = document.getElementById('arrearsClassFilter')?.value || '';
   const sortF = document.getElementById('arrearsSortFilter')?.value || 'balance';
-  let data = state.fees.filter(f => f.due > 0 && f.due > f.paid);
+  let data = state.fees.filter(f => {
+    const td = getDueForRecord(f) + (f.arrears||0);
+    const tp = totalPaidForRecord(f);
+    return td > 0 && tp < td;
+  });
   if (clsF) data = data.filter(f => f.cls === clsF);
-  data = data.map(f => ({ ...f, balance: f.due - f.paid }));
+  data = data.map(f => ({
+    ...f,
+    _td: getDueForRecord(f) + (f.arrears||0),
+    _tp: totalPaidForRecord(f),
+    balance: (getDueForRecord(f) + (f.arrears||0)) - totalPaidForRecord(f)
+  }));
   if (sortF === 'balance') data.sort((a,b) => b.balance - a.balance);
   else data.sort((a,b) => a.student.localeCompare(b.student));
 
@@ -3606,8 +3629,8 @@ function renderArrearsTable() {
         <td><strong>${escHtml(f.student)}</strong></td>
         <td>${escHtml(f.cls||'-')}</td>
         <td>${escHtml(f.term||'-')}</td>
-        <td>${fmt(f.due)}</td>
-        <td style="color:var(--green);">${fmt(f.paid)}</td>
+        <td>${fmt(f._td)}</td>
+        <td style="color:var(--green);">${fmt(f._tp)}</td>
         <td style="color:var(--red);font-weight:700;">${fmt(f.balance)}</td>
       </tr>`).join('')}</tbody>
     </table></div>`;
@@ -3617,11 +3640,18 @@ function printArrearsReport() {
   const school = state.settings.schoolName || 'School';
   const date   = new Date().toLocaleDateString('en-GH', {year:'numeric',month:'long',day:'numeric'});
   const clsF   = document.getElementById('arrearsClassFilter')?.value || 'All Classes';
-  let data = state.fees.filter(f => f.due > 0 && f.due > f.paid);
+  let data = state.fees.filter(f => {
+    const td = getDueForRecord(f) + (f.arrears||0);
+    return td > 0 && totalPaidForRecord(f) < td;
+  });
   if (clsF && clsF !== 'All Classes') data = data.filter(f => f.cls === clsF);
-  data = data.map(f => ({...f, balance:f.due-f.paid})).sort((a,b)=>b.balance-a.balance);
+  data = data.map(f => {
+    const td = getDueForRecord(f) + (f.arrears||0);
+    const tp = totalPaidForRecord(f);
+    return {...f, _td: td, _tp: tp, balance: td - tp};
+  }).sort((a,b)=>b.balance-a.balance);
   const total = data.reduce((a,f)=>a+f.balance,0);
-  const rows = data.map((f,i)=>`<tr><td>${i+1}</td><td>${f.student}</td><td>${f.cls||'-'}</td><td>${f.term||'-'}</td><td>${fmt(f.due)}</td><td>${fmt(f.paid)}</td><td style="color:#dc2626;font-weight:700;">${fmt(f.balance)}</td></tr>`).join('');
+  const rows = data.map((f,i)=>`<tr><td>${i+1}</td><td>${f.student}</td><td>${f.cls||'-'}</td><td>${f.term||'-'}</td><td>${fmt(f._td)}</td><td>${fmt(f._tp)}</td><td style="color:#dc2626;font-weight:700;">${fmt(f.balance)}</td></tr>`).join('');
   const w = window.open('','_blank','width=900,height=700');
   w.document.write(`<!DOCTYPE html><html><head><title>Arrears Report</title><style>
     body{font-family:Arial,sans-serif;padding:30px;color:#111;} h1{font-size:20px;margin:0;} h2{font-size:14px;color:#555;margin:4px 0 20px;}
@@ -3672,8 +3702,8 @@ function renderPaymentStatement() {
 
   const wrap = document.getElementById('paymentStatementWrap');
   if (!data.length) { wrap.innerHTML='<p style="text-align:center;color:var(--text-muted);padding:20px;">No records match this filter.</p>'; return; }
-  const totalDue = data.reduce((a,f)=>a+f.due,0);
-  const totalPaid= data.reduce((a,f)=>a+f.paid,0);
+  const totalDue = data.reduce((a,f)=>a+getDueForRecord(f)+(f.arrears||0),0);
+  const totalPaid= data.reduce((a,f)=>a+totalPaidForRecord(f),0);
   const totalBal = totalDue - totalPaid;
   wrap.innerHTML=`
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
@@ -3684,8 +3714,10 @@ function renderPaymentStatement() {
     <div class="table-wrap"><table class="data-table">
       <thead><tr><th>#</th><th>Pupil</th><th>Class</th><th>Term</th><th>Due</th><th>Paid</th><th>Balance</th><th>Status</th></tr></thead>
       <tbody>${data.map((f,i)=>{
-        const bal=f.due-f.paid;
-        return `<tr><td>${i+1}</td><td>${escHtml(f.student)}</td><td>${escHtml(f.cls||'-')}</td><td>${escHtml(f.term||'-')}</td><td>${fmt(f.due)}</td><td style="color:var(--green);">${fmt(f.paid)}</td><td style="color:${bal>0?'var(--red)':'var(--green)'};">${fmt(bal)}</td><td>${statusPill(getStatus(f.due,f.paid))}</td></tr>`;
+        const td = getDueForRecord(f)+(f.arrears||0);
+        const tp = totalPaidForRecord(f);
+        const bal=td-tp;
+        return `<tr><td>${i+1}</td><td>${escHtml(f.student)}</td><td>${escHtml(f.cls||'-')}</td><td>${escHtml(f.term||'-')}</td><td>${fmt(td)}</td><td style="color:var(--green);">${fmt(tp)}</td><td style="color:${bal>0?'var(--red)':'var(--green)'};">${fmt(bal)}</td><td>${statusPill(getStatus(td,tp))}</td></tr>`;
       }).join('')}</tbody>
     </table></div>`;
 }
@@ -3701,8 +3733,8 @@ function printPaymentStatement() {
   data.sort((a,b)=>a.student.localeCompare(b.student));
   const school = state.settings.schoolName||'School';
   const date   = new Date().toLocaleDateString('en-GH',{year:'numeric',month:'long',day:'numeric'});
-  const totalDue=data.reduce((a,f)=>a+f.due,0), totalPaid=data.reduce((a,f)=>a+f.paid,0), totalBal=totalDue-totalPaid;
-  const rows = data.map((f,i)=>{const bal=f.due-f.paid;return `<tr><td>${i+1}</td><td>${f.student}</td><td>${f.cls||'-'}</td><td>${f.term||'-'}</td><td>${fmt(f.due)}</td><td>${fmt(f.paid)}</td><td style="color:${bal>0?'#dc2626':'#16a34a'};font-weight:${bal>0?700:400};">${fmt(bal)}</td><td>${getStatus(f.due,f.paid)}</td></tr>`;}).join('');
+  const totalDue=data.reduce((a,f)=>a+getDueForRecord(f)+(f.arrears||0),0), totalPaid=data.reduce((a,f)=>a+totalPaidForRecord(f),0), totalBal=totalDue-totalPaid;
+  const rows = data.map((f,i)=>{const td=getDueForRecord(f)+(f.arrears||0);const tp=totalPaidForRecord(f);const bal=td-tp;return `<tr><td>${i+1}</td><td>${f.student}</td><td>${f.cls||'-'}</td><td>${f.term||'-'}</td><td>${fmt(td)}</td><td>${fmt(tp)}</td><td style="color:${bal>0?'#dc2626':'#16a34a'};font-weight:${bal>0?700:400};">${fmt(bal)}</td><td>${getStatus(td,tp)}</td></tr>`;}).join('');
   const w=window.open('','_blank','width=900,height=700');
   w.document.write(`<!DOCTYPE html><html><head><title>Payment Statement</title><style>
     body{font-family:Arial,sans-serif;padding:30px;color:#111;} h1{font-size:20px;margin:0;} h2{font-size:13px;color:#555;margin:4px 0 20px;}
@@ -3748,14 +3780,6 @@ function initFees() {
   });
   document.getElementById('closeFeeModal').addEventListener('click',()=>document.getElementById('feeModal').classList.remove('open'));
   document.getElementById('cancelFeeModal').addEventListener('click',()=>document.getElementById('feeModal').classList.remove('open'));
-  // Re-fill fee from structure whenever term changes
-  const fTermEl = document.getElementById('fTerm');
-  if (fTermEl) {
-    fTermEl.addEventListener('change', function() {
-      const selPupil = document.getElementById('fStudentSelect')?.value;
-      if (selPupil) autoFillFeeFromPupil(selPupil);
-    });
-  }
   document.getElementById('saveFeeBtn').addEventListener('click', saveFee);
   document.getElementById('printReceiptBtn').addEventListener('click', printFeeReceipt);
 
@@ -4104,7 +4128,7 @@ function quickPrintFeeReceipt(feeId) {
 function printFeeReceipt() {
   const student = document.getElementById('fStudentName').value.trim();
   const cls = document.getElementById('fClass').value;
-  const paid = parseFloat(document.getElementById('fPaid').value)||0;
+  const paid = _feePaymentDraft.reduce((a,p) => a + p.amt, 0);
   const due = parseFloat(document.getElementById('fDue').value)||0;
   if (!student){ showToast('⚠️ Fill in pupil details first.'); return; }
   const school = state.settings;

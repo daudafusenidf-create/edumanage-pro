@@ -1134,8 +1134,18 @@
                   <input type="date" class="form-input" id="fNewPayDate"/>
                 </div>
                 <div class="form-group" style="margin:0;flex:1;">
+                  <label style="font-size:11px;">Method</label>
+                  <select class="form-input" id="fNewPayMethod">
+                    <option value="Cash">Cash</option>
+                    <option value="MoMo">MoMo</option>
+                    <option value="Bank Transfer">Bank Transfer</option>
+                    <option value="Cheque">Cheque</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div class="form-group" style="margin:0;flex:1;">
                   <label style="font-size:11px;">Note (optional)</label>
-                  <input type="text" class="form-input" id="fNewPayNote" placeholder="e.g. Cash"/>
+                  <input type="text" class="form-input" id="fNewPayNote" placeholder="e.g. Instalment 1"/>
                 </div>
                 <button type="button" class="btn-primary" onclick="addPaymentEntry()" style="white-space:nowrap;padding:8px 14px;"><i class="fas fa-plus"></i> Add</button>
               </div>
