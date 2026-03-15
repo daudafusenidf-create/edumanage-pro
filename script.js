@@ -938,6 +938,8 @@ function loadSchoolData(schoolKey) {
     if (data.nextExpenditureId) state.nextExpenditureId = data.nextExpenditureId;
     // Migrate legacy f.payments[] into global state.payments[] ledger (runs once)
     migratePaymentsToGlobalLedger();
+    // Stamp missing studentId on fee records that were saved before this fix
+    backfillFeeStudentIds();
     return true;
   } catch(e) { console.warn('Load failed:', e); return false; }
 }
@@ -1187,6 +1189,24 @@ function backfillStudentUIDs() {
 }
 
 // ════════════════════════════════════════
+// BACKFILL: Stamp missing studentId on old fee records
+// Runs once on load. Matches by student name + class.
+// ════════════════════════════════════════
+function backfillFeeStudentIds() {
+  if (!state.fees || !state.students) return;
+  let fixed = 0;
+  state.fees.forEach(f => {
+    if (f.studentId) return; // already has ID — skip
+    const match = state.students.find(s =>
+      (s.first + ' ' + s.last).toLowerCase().trim() === (f.student||'').toLowerCase().trim() &&
+      (!f.cls || s.cls === f.cls)
+    );
+    if (match) { f.studentId = match.id; fixed++; }
+  });
+  if (fixed > 0) { autosave(); console.log('[backfill] stamped studentId on ' + fixed + ' fee record(s)'); }
+}
+
+// ════════════════════════════════════════
 // AUDIT TRAIL HELPERS
 // Stamps who created/updated a record and when.
 // ════════════════════════════════════════
@@ -1299,18 +1319,23 @@ function autoFillFeeFromPupil(pupilId) {
     fDueEl.title = 'Set in Fee Structure - cannot be changed here';
     if (fDueNotice) fDueNotice.style.display = 'block';
   } else {
+    // No fee structure set — allow admin to type the amount manually
     fDueEl.readOnly = false;
     fDueEl.style.background = '';
     fDueEl.style.color = '';
     fDueEl.style.cursor = '';
-    fDueEl.title = '';
-    if (fDueNotice) fDueNotice.style.display = 'none';
-    // No structure set - warn admin
-    showToast('⚠️ No fee set for ' + p.cls + ' · ' + term + '. Set it in Fee Structure first.');
+    fDueEl.title = 'Enter fee amount manually (or set it in Fee Structure)';
+    fDueEl.placeholder = 'Enter amount (e.g. 350)';
+    if (fDueNotice) {
+      fDueNotice.style.display = 'block';
+      fDueNotice.style.color = 'var(--yellow)';
+      fDueNotice.innerHTML = '<i class="fas fa-exclamation-triangle" style="font-size:9px;"></i> No Fee Structure set for ' + p.cls + ' · ' + term + '. Enter amount manually or set it in Fee Structure.';
+    }
   }
 
-  // Check if a fee record already exists for this pupil THIS term
-  const existing = state.fees.find(f => (f.studentId===p.id || f.student===name) && f.term===term);
+  // Check if a fee record already exists for this pupil THIS term — ID-first
+  const existing = state.fees.find(f => f.studentId === p.id && f.term === term) ||
+                   state.fees.find(f => !f.studentId && f.student === name && f.term === term);
   if (existing) {
     document.getElementById('fEditId').value = existing.id;
     // Always use structure amount, not stored f.due
@@ -1612,8 +1637,8 @@ function updateDashFeeBars() {
   const classFees = {};
   state.fees.forEach(f => {
     if (!classFees[f.cls]) classFees[f.cls] = { due:0, paid:0, count:0 };
-    classFees[f.cls].due += f.due;
-    classFees[f.cls].paid += f.paid;
+    classFees[f.cls].due  += getDueForRecord(f) + (f.arrears||0);
+    classFees[f.cls].paid += totalPaidForRecord(f);
     classFees[f.cls].count++;
   });
   const entries = Object.entries(classFees).filter(([,v]) => v.due > 0);
@@ -1714,9 +1739,12 @@ function downloadCSV(filename, headers, rows) {
 function downloadPupilsCSV() {
   const headers = ['#','First Name','Last Name','Class','Gender','Guardian Phone','Fee Status','Enrolled'];
   const rows = state.students.map((s,i) => {
-    const name = `${s.first} ${s.last}`;
-    const feeRec = state.fees.find(f => f.studentId === s.id || f.student === name);
-    const liveStatus = feeRec ? getStatus(feeRec.due, feeRec.paid) : (s.feeStatus || 'Unpaid');
+    const name = s.first + ' ' + s.last;
+    const feeRec = state.fees.find(f => f.studentId === s.id) ||
+                   state.fees.find(f => !f.studentId && f.student === name);
+    const _fd = feeRec ? getDueForRecord(feeRec) + (feeRec.arrears||0) : 0;
+    const _fp = feeRec ? totalPaidForRecord(feeRec) : 0;
+    const liveStatus = feeRec ? getStatus(_fd, _fp) : (s.feeStatus || 'Unpaid');
     return [i+1, s.first, s.last, s.cls, s.gender, s.phone||'', liveStatus, s.enrolledDate||''];
   });
   const school = state.settings.schoolName || 'School';
@@ -1727,9 +1755,12 @@ function downloadPupilsCSV() {
 function downloadFeesCSV() {
   const headers = ['#','Pupil Name','Class','Term','Fee Due (GH₵)','Fee Paid (GH₵)','Balance (GH₵)','Status','Guardian Phone'];
   const rows = state.fees.map((f,i) => {
-    const pupil = state.students.find(s => s.id === f.studentId || `${s.first} ${s.last}` === f.student);
-    const bal   = f.due - f.paid;
-    return [i+1, f.student, pupil ? pupil.cls : f.cls, f.term||'', f.due.toFixed(2), f.paid.toFixed(2), bal.toFixed(2), getStatus(f.due,f.paid), pupil ? (pupil.phone||'') : ''];
+    const pupil = state.students.find(s => s.id === f.studentId) ||
+                  state.students.find(s => !f.studentId && s.first + ' ' + s.last === f.student);
+    const _fd = getDueForRecord(f) + (f.arrears||0);
+    const _fp = totalPaidForRecord(f);
+    const bal = _fd - _fp;
+    return [i+1, f.student, pupil ? pupil.cls : f.cls, f.term||'', _fd.toFixed(2), _fp.toFixed(2), bal.toFixed(2), getStatus(_fd,_fp), pupil ? (pupil.phone||'') : ''];
   });
   const school = state.settings.schoolName || 'School';
   const term   = state.settings.term || 'Term';
@@ -1795,11 +1826,14 @@ function renderStudents(filter='', cls='') {
   if (cls) data = data.filter(s=>s.cls===cls);
   if (!data.length) { tbody.innerHTML=`<tr><td colspan="7" style="text-align:center;color:var(--text-light);padding:28px;">No pupils found.</td></tr>`; return; }
   tbody.innerHTML = data.map((s,i)=>{
-    // Get live fee status from fees array
+    // Get live fee status — ID-first, fall back to name match for legacy records
     const name = `${s.first} ${s.last}`;
-    const feeRec = state.fees.find(f => f.studentId === s.id || (f.student === name && f.cls === s.cls));
-    const liveFeeStatus = feeRec ? getStatus(feeRec.due, feeRec.paid) : (s.feeStatus || 'Unpaid');
-    const feeNote = feeRec && feeRec.due === 0 ? `<small style="color:var(--yellow);display:block;font-size:10px;">⚠ Fee not set</small>` : '';
+    const feeRec = state.fees.find(f => f.studentId === s.id) ||
+                   state.fees.find(f => !f.studentId && f.student === name && f.cls === s.cls);
+    const _frd   = feeRec ? getDueForRecord(feeRec) + (feeRec.arrears||0) : 0;
+    const _frp   = feeRec ? totalPaidForRecord(feeRec) : 0;
+    const liveFeeStatus = feeRec ? getStatus(_frd, _frp) : (s.feeStatus || 'Unpaid');
+    const feeNote = feeRec && _frd === 0 ? `<small style="color:var(--yellow);display:block;font-size:10px;">⚠ Fee not set</small>` : '';
     const photoHtml = s.photo
       ? `<img src="${s.photo}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;margin-right:8px;vertical-align:middle;border:2px solid var(--border);"/>`
       : `<span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:var(--blue-light);color:var(--blue);font-size:12px;font-weight:700;margin-right:8px;">${s.first.charAt(0)}</span>`;
@@ -1823,7 +1857,8 @@ function renderStudents(filter='', cls='') {
 }
 
 function initStudents() {
-  backfillStudentUIDs(); // ensure all existing students have a permanent STU- ID
+  backfillStudentUIDs();      // ensure all existing students have a permanent STU- ID
+  backfillFeeStudentIds();   // stamp missing studentId on any legacy fee records
   renderStudents();
   document.getElementById('studentSearch').addEventListener('input', function(){ renderStudents(this.value, document.getElementById('classFilter').value); });
   document.getElementById('classFilter').addEventListener('change', function(){ renderStudents(document.getElementById('studentSearch').value, this.value); });
@@ -3025,9 +3060,10 @@ function termBefore(t1, t2) {
   return (TERM_ORDER[t1]||0) < (TERM_ORDER[t2]||0);
 }
 function getArrearsForPupil(studentId, studentName, currentTerm) {
-  // Sum unpaid balances from ALL prior term records for this pupil
+  // Sum unpaid balances from ALL prior term records — ID-first, name as legacy fallback
   const prior = state.fees.filter(f => {
-    const samePupil = f.studentId === studentId || f.student === studentName;
+    const samePupil = (studentId && f.studentId === studentId) ||
+                      (!f.studentId && f.student === studentName);
     return samePupil && termBefore(f.term, currentTerm);
   });
   return prior.reduce((sum, f) => {
@@ -3311,7 +3347,8 @@ function renderFees(filter='', statusF='') {
     const paid = totalPaidForRecord(f);
     const bal  = td - paid;
     const status = getStatus(td, paid);
-    const pupil  = state.students.find(s => s.id === f.studentId || `${s.first} ${s.last}` === f.student);
+    const pupil  = state.students.find(s => s.id === f.studentId) ||
+                 state.students.find(s => !f.studentId && s.first + ' ' + s.last === f.student);
     const cls    = pupil ? pupil.cls : f.cls;
     const name   = pupil ? `${pupil.first} ${pupil.last}` : f.student;
     const photo  = pupil && pupil.photo
@@ -3348,7 +3385,8 @@ function viewPaymentHistory(feeId) {
   // Build full student statement across ALL their fee records (all terms)
   const student  = state.students.find(s => s.id === f.studentId || `${s.first} ${s.last}` === f.student);
   const allRecs  = state.fees
-    .filter(r => r.studentId === f.studentId || r.student === f.student)
+    .filter(r => (f.studentId && r.studentId === f.studentId) ||
+                 (!f.studentId && r.student === f.student))
     .sort((a,b) => (TERM_ORDER[a.term]||0) - (TERM_ORDER[b.term]||0));
 
   let grandDue = 0, grandPaid = 0;
@@ -3454,7 +3492,8 @@ function viewPaymentHistory(feeId) {
 function printStudentStatement(studentName, studentId) {
   const sid = parseInt(studentId) || null;
   const allRecs = state.fees
-    .filter(r => (sid && r.studentId === sid) || r.student === studentName)
+    .filter(r => (sid && r.studentId === sid) ||
+                 (!sid && r.student === studentName))
     .sort((a,b) => (TERM_ORDER[a.term]||0) - (TERM_ORDER[b.term]||0));
   if (!allRecs.length) { showToast('No fee records found.'); return; }
 
@@ -3957,15 +3996,22 @@ function applyClassBillToStudents() {
     const name    = `${p.first} ${p.last}`;
     const arrears = getArrearsForPupil(p.id, name, term);
     const existing = state.fees.find(f =>
-      (f.studentId===p.id || f.student===name) && f.term===term && (f.year===year||!f.year)
+      f.studentId === p.id && f.term === term && (f.year === year || !f.year)
+    ) || state.fees.find(f =>
+      !f.studentId && f.student === name && f.term === term && (f.year === year || !f.year)
     );
     if (existing) {
       existing.due = total; existing.cls = cls; existing.year = year;
       updated++;
     } else {
       state.fees.push({
-        id: state.nextFeeId++, student: name, cls, due: total, arrears,
-        payments: [], paid: 0, term, year, studentId: p.id,
+        id: state.nextFeeId++,
+        studentId:  p.id,        // always stamp numeric ID
+        studentUID: p.uid || null,
+        student:    name,
+        cls, due: total, arrears,
+        payments: [], paid: 0,
+        term, year,
         createdAt: new Date().toISOString()
       });
       created++;
@@ -4289,14 +4335,15 @@ function saveFee() {
   const selId   = parseInt(document.getElementById('fStudentSelect')?.value) || null;
   const arrears = parseFloat(document.getElementById('fArrearsRow')?.dataset?.arrears || 0);
 
-  if (!student) { showToast('⚠️ Select a pupil.'); return; }
+  // Must have a pupil selected so we always have a reliable numeric studentId
+  if (!selId || !student) { showToast('⚠️ Please select a pupil from the dropdown.'); return; }
 
-  // Always derive due from fee structure - never accept manual input
+  // Derive due from fee structure; allow manual entry only when no structure is set
   const structAmt = getFeeFromStructure(cls, term, year);
-  const fDueEl = document.getElementById('fDue');
+  const fDueEl    = document.getElementById('fDue');
   const manualAmt = fDueEl ? parseFloat(fDueEl.value) || 0 : 0;
-  const due = (structAmt !== null && structAmt > 0) ? structAmt : manualAmt;
-  if (due <= 0) { showToast('Please enter the fee amount due.'); return; }
+  const due       = (structAmt !== null && structAmt > 0) ? structAmt : manualAmt;
+  if (due <= 0) { showToast('⚠️ Fee amount is zero. Set the Fee Structure for this class first, or enter the amount manually.'); return; }
 
   const totalPaid = _feePaymentDraft.reduce((a,p) => a + p.amt, 0);
   const totalDue  = due + arrears;
@@ -4304,26 +4351,33 @@ function saveFee() {
   if (editId) {
     const f = state.fees.find(f => f.id === parseInt(editId));
     if (f) {
-      // Update metadata (due, term, class) but NEVER overwrite payment history -
-      // _feePaymentDraft IS the full authoritative payment log for this record.
-      f.student = student; f.cls = cls||f.cls; f.due = due; f.arrears = arrears; f.term = term;
-      f.payments = [..._feePaymentDraft]; // ledger: immutable transaction array
-      f.paid = f.payments.reduce((a,p) => a + p.amt, 0); // always derived from transactions
-      if (selId) f.studentId = selId;
+      f.studentId = selId;          // always keep studentId stamped
+      f.student   = student;
+      f.cls       = cls || f.cls;
+      f.due       = due;
+      f.arrears   = arrears;
+      f.term      = term;
+      f.year      = year;
+      f.payments  = [..._feePaymentDraft];
+      f.paid      = f.payments.reduce((a,p) => a + p.amt, 0);
     }
     showToast(`✅ Fee record updated for ${student}!`);
   } else {
     state.fees.push({
-      id: state.nextFeeId++, student, cls, due, arrears,
-      payments: [..._feePaymentDraft],   // transaction ledger
-      paid: totalPaid,                   // derived; kept in sync
-      term, studentId: selId || null,
+      id:        state.nextFeeId++,
+      studentId: selId,             // numeric ID — primary key for all lookups
+      student,                      // display name (kept for legacy read compatibility)
+      cls, due, arrears,
+      payments:  [..._feePaymentDraft],
+      paid:      totalPaid,
+      term, year,
       createdAt: new Date().toISOString()
     });
     showToast(`✅ Fee recorded for ${student}!`);
   }
 
-  const pupil = state.students.find(s => s.id === selId || `${s.first} ${s.last}` === student);
+  // Update cached fee status using ID-only lookup
+  const pupil = state.students.find(s => s.id === selId);
   if (pupil) pupil.feeStatus = getStatus(totalDue, totalPaid);
 
   renderFees(); renderStudents();
@@ -5083,8 +5137,8 @@ function buildBackupData() {
       totalAlbums:            state.albums.length,
       totalPhotos:            state.albums.reduce((a,al)=>a+(al.photos||[]).length, 0),
       totalUsers:             (state.users||[]).length,
-      feesCollected:          state.fees.reduce((a,f)=>a+f.paid, 0),
-      feesOutstanding:        state.fees.reduce((a,f)=>a+(f.due-f.paid), 0),
+      feesCollected:          state.fees.reduce((a,f)=>a+totalPaidForRecord(f), 0),
+      feesOutstanding:        state.fees.reduce((a,f)=>a+Math.max(0,(getDueForRecord(f)+(f.arrears||0))-totalPaidForRecord(f)), 0),
     },
   };
 }
@@ -5226,8 +5280,8 @@ function updateBackupInfo() {
   const el = document.getElementById('backupInfo');
   if (!el) return;
   const totalPhotos = state.albums.reduce((a,al)=>a+(al.photos||[]).length, 0);
-  const collected   = state.fees.reduce((a,f)=>a+f.paid, 0);
-  const outstanding = state.fees.reduce((a,f)=>a+(f.due-f.paid), 0);
+  const collected   = state.fees.reduce((a,f)=>a+totalPaidForRecord(f), 0);
+  const outstanding = state.fees.reduce((a,f)=>a+Math.max(0,(getDueForRecord(f)+(f.arrears||0))-totalPaidForRecord(f)), 0);
   el.innerHTML = `
     <div class="backup-summary-grid">
       <div class="bsg-item"><i class="fas fa-user-graduate"></i><div><strong>${state.students.length}</strong><span>Pupils</span></div></div>
@@ -6428,22 +6482,29 @@ function initIDCards() {
 function getSMSData() {
   const clsFilter    = document.getElementById('smsClassFilter')?.value || '';
   const statusFilter = document.getElementById('smsStatusFilter')?.value || '';
+  const _findPupil = f => state.students.find(st => st.id === f.studentId) ||
+                          state.students.find(st => !f.studentId && st.first + ' ' + st.last === f.student);
   return state.fees.filter(f => {
-    const status = getStatus(f.due, f.paid);
-    const s = state.students.find(st => st.id === f.studentId || `${st.first} ${st.last}` === f.student);
+    const _td = getDueForRecord(f) + (f.arrears||0);
+    const _tp = totalPaidForRecord(f);
+    const status = getStatus(_td, _tp);
+    const s = _findPupil(f);
     if (statusFilter) { if (status !== statusFilter) return false; }
     else { if (status === 'Paid') return false; }
     if (clsFilter) { const cls = s ? s.cls : f.cls; if (cls !== clsFilter) return false; }
     return true;
   }).map(f => {
-    const s = state.students.find(st => st.id === f.studentId || `${st.first} ${st.last}` === f.student);
-    return { ...f, student: s ? `${s.first} ${s.last}` : f.student, cls: s ? s.cls : f.cls, phone: s ? s.phone : f.phone };
+    const s = _findPupil(f);
+    const _td = getDueForRecord(f) + (f.arrears||0);
+    const _tp = totalPaidForRecord(f);
+    return { ...f, student: s ? s.first + ' ' + s.last : f.student, cls: s ? s.cls : f.cls,
+             phone: s ? s.phone : (f.phone||''), due: _td, paid: _tp };
   });
 }
 
 function buildSMSMessage(f, template) {
-  const tpl = template || `Dear Parent/Guardian, this is a reminder that {name} ({class}) has an outstanding school fee balance of GH₵{balance}. Please pay at the earliest. Thank you - {school}.`;
-  const balance = (f.due - f.paid).toFixed(2);
+  const tpl = template || `Dear Parent/Guardian, this is a reminder that {name} ({class}) has an outstanding school fee balance of GH₳{balance}. Please pay at the earliest. Thank you - {school}.`;
+  const balance = ((f.due||0) - (f.paid||0)).toFixed(2);
   return tpl
     .replace(/{name}/g, f.student)
     .replace(/{class}/g, f.cls)
@@ -6462,7 +6523,7 @@ function generateSMSReminders() {
   }
   if (info) info.textContent = `${unpaid.length} pupil${unpaid.length!==1?'s':''} with outstanding fees`;
   tbody.innerHTML = unpaid.map((f,i) => {
-    const balance = f.due - f.paid;
+    const balance = (f.due||0) - (f.paid||0);
     const msg     = buildSMSMessage(f);
     const safeMsg = msg.replace(/'/g,"\\'");
     const phone   = f.phone || '-';
@@ -8747,25 +8808,32 @@ function generateSMSReminders2() {
   if (!tbody) return;
   const cls    = document.getElementById('smsClassFilter2')?.value||'';
   const status = document.getElementById('smsStatusFilter2')?.value||'';
+  const _findPupil2 = f => state.students.find(s => s.id === f.studentId) ||
+                            state.students.find(s => !f.studentId && s.first + ' ' + s.last === f.student);
   let data = state.fees.filter(f => {
-    const bal = (f.due||0)-(f.paid||0);
-    if (bal<=0 && !status) return false;
-    if (bal<=0) return false;
-    const st = bal<=(f.due||0)&&(f.paid||0)>0 ? 'Partial' : 'Unpaid';
-    if (status && st!==status) return false;
+    const _td = getDueForRecord(f) + (f.arrears||0);
+    const _tp = totalPaidForRecord(f);
+    const bal = _td - _tp;
+    if (bal <= 0) return false;
+    const st = getStatus(_td, _tp);
+    if (status && st !== status) return false;
     return true;
   });
-  if (cls) data = data.filter(f => f.cls===cls || (state.students.find(s=>`${s.first} ${s.last}`===f.student&&s.cls===cls)));
+  if (cls) data = data.filter(f => { const p = _findPupil2(f); return (p ? p.cls : f.cls) === cls; });
   if (!data.length) { tbody.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted);">No outstanding fees found.</td></tr>`; return; }
   const sc = state.settings.schoolName||'School';
   tbody.innerHTML = data.map((f,i)=>{
-    const bal = (f.due||0)-(f.paid||0);
-    const pupil = state.students.find(s=>`${s.first} ${s.last}`===f.student);
+    const pupil = _findPupil2(f);
+    const _td = getDueForRecord(f) + (f.arrears||0);
+    const _tp = totalPaidForRecord(f);
+    const bal = _td - _tp;
+    const name  = pupil ? pupil.first + ' ' + pupil.last : f.student;
+    const pcls  = pupil ? pupil.cls : (f.cls||'-');
     const phone = pupil?.phone || f.phone || '-';
-    const smsText = `Dear Parent, ${f.student} (${f.cls||pupil?.cls||'-'}) has an outstanding fee balance of GH₵${bal.toFixed(2)}. Please pay ASAP. - ${sc}`;
+    const smsText = `Dear Parent, ${name} (${pcls}) has an outstanding fee balance of GH₳${bal.toFixed(2)}. Please pay ASAP. - ${sc}`;
     return `<tr>
-      <td>${i+1}</td><td><strong>${f.student}</strong></td><td>${f.cls||pupil?.cls||'-'}</td>
-      <td style="font-weight:700;color:var(--red);">GH₵${bal.toFixed(2)}</td>
+      <td>${i+1}</td><td><strong>${name}</strong></td><td>${pcls}</td>
+      <td style="font-weight:700;color:var(--red);">${fmt(bal)}</td>
       <td>${phone}</td>
       <td><button class="tbl-btn" onclick="copySMSMsg(this)" data-sms="${escHtml(smsText)}"><i class="fas fa-copy"></i> Copy</button>
           ${phone!=='-'?`<a class="tbl-btn" href="sms:${phone}?body=${encodeURIComponent(smsText)}" style="text-decoration:none;"><i class="fas fa-sms"></i> SMS</a>`:''}
@@ -8773,7 +8841,7 @@ function generateSMSReminders2() {
     </tr>`;
   }).join('');
   // Also update phone list
-  const phones = data.map(f=>{ const p=state.students.find(s=>`${s.first} ${s.last}`===f.student); return p?.phone||f.phone||''; }).filter(Boolean).join(', ');
+  const phones = data.map(f=>{ const p=_findPupil2(f); return p?.phone||f.phone||''; }).filter(Boolean).join(', ');
   const pl = document.getElementById('bulkPhoneList2'); if (pl) pl.value = phones;
   const ct = document.getElementById('bulkSelectedCount2'); if (ct) ct.textContent = `${data.length} recipients`;
 }
@@ -8915,8 +8983,16 @@ function renderPortalFees() {
     return;
   }
   if (!pupil) { panel.innerHTML = `<div class="card"><p style="color:var(--text-muted);"><i class="fas fa-exclamation-circle"></i> No pupil linked to this account. Please contact the school administrator.</p></div>`; return; }
-  const feeRec = state.fees.find(f => f.studentId===pupil.id || f.student===`${pupil.first} ${pupil.last}`);
+  // ID-first lookup; fall back to name only for legacy records without studentId
+  const feeRec = state.fees.find(f => f.studentId === pupil.id) ||
+                 state.fees.find(f => !f.studentId && f.student === pupil.first + ' ' + pupil.last);
   const s = state.settings;
+  // Use proper helpers so amounts match the admin fees table exactly
+  const _portalDue = feeRec ? getDueForRecord(feeRec) + (feeRec.arrears||0) : 0;
+  const _portalPaid = feeRec ? totalPaidForRecord(feeRec) : 0;
+  const _portalBal  = _portalDue - _portalPaid;
+  const _portalStatus = feeRec ? getStatus(_portalDue, _portalPaid) : 'Unpaid';
+  const statusColor = _portalStatus==='Paid' ? 'var(--green)' : _portalStatus==='Partial' ? 'var(--yellow)' : 'var(--red)';
   panel.innerHTML = `
     <div style="display:grid;gap:20px;">
       <div class="card">
@@ -8930,24 +9006,24 @@ function renderPortalFees() {
         ${feeRec ? `
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
             <div style="background:var(--blue-light);border-radius:10px;padding:14px;text-align:center;">
-              <div style="font-size:20px;font-weight:800;color:var(--blue);">GH₵${(feeRec.due||0).toFixed(2)}</div>
+              <div style="font-size:20px;font-weight:800;color:var(--blue);">${fmt(_portalDue)}</div>
               <div style="font-size:12px;color:var(--text-muted);">Total Fee Due</div>
             </div>
-            <div style="background:var(--green-light);border-radius:10px;padding:14px;text-align:center;">
-              <div style="font-size:20px;font-weight:800;color:var(--green);">GH₵${(feeRec.paid||0).toFixed(2)}</div>
+            <div style="background:#f0fdf4;border-radius:10px;padding:14px;text-align:center;">
+              <div style="font-size:20px;font-weight:800;color:var(--green);">${fmt(_portalPaid)}</div>
               <div style="font-size:12px;color:var(--text-muted);">Amount Paid</div>
             </div>
-            <div style="background:var(--red-light);border-radius:10px;padding:14px;text-align:center;">
-              <div style="font-size:20px;font-weight:800;color:var(--red);">GH₵${((feeRec.due||0)-(feeRec.paid||0)).toFixed(2)}</div>
+            <div style="background:${_portalBal>0?'#fee2e2':'#f0fdf4'};border-radius:10px;padding:14px;text-align:center;">
+              <div style="font-size:20px;font-weight:800;color:${_portalBal>0?'var(--red)':'var(--green)'};">${fmt(_portalBal)}</div>
               <div style="font-size:12px;color:var(--text-muted);">Outstanding Balance</div>
             </div>
           </div>
           <div style="padding:10px 14px;background:var(--bg);border-radius:8px;font-size:13px;">
             <strong>Term:</strong> ${feeRec.term||s.term||'-'} &nbsp;|&nbsp;
-            <strong>Status:</strong> <span style="font-weight:700;color:${feeRec.status==='Paid'?'var(--green)':feeRec.status==='Partial'?'var(--yellow)':'var(--red)'};">${feeRec.status||'Unpaid'}</span>
+            <strong>Status:</strong> <span style="font-weight:700;color:${statusColor};">${_portalStatus}</span>
           </div>
           <button class="btn-ghost" style="margin-top:12px;" onclick="printPortalFeeReceipt()"><i class="fas fa-print"></i> Print Fee Statement</button>`
-        : `<div style="text-align:center;padding:30px;color:var(--text-muted);"><i class="fas fa-receipt" style="font-size:32px;margin-bottom:10px;display:block;"></i>No fee record found for this term. Please contact the school office.</div>`}
+        : `<div style="text-align:center;padding:30px;color:var(--text-muted);"><i class="fas fa-receipt" style="font-size:32px;margin-bottom:10px;display:block;"></i>No fee record found. Please contact the school office.</div>`}
       </div>
     </div>`;
 }
@@ -9067,8 +9143,11 @@ function renderPortalNotices() {
 
 function printPortalFeeReceipt() {
   const pupil = _portalPupil(); if (!pupil) return;
-  const feeRec = state.fees.find(f=>f.studentId===pupil.id||f.student===`${pupil.first} ${pupil.last}`);
+  const feeRec = state.fees.find(f=>f.studentId===pupil.id) ||
+               state.fees.find(f=>!f.studentId && f.student===pupil.first+' '+pupil.last);
   if (!feeRec) return;
+  const _pDue  = getDueForRecord(feeRec) + (feeRec.arrears||0);
+  const _pPaid = totalPaidForRecord(feeRec);
   const s = state.settings;
   const win = window.open('','_blank');
   win.document.write(`<!DOCTYPE html><html><head><title>Fee Statement</title>
@@ -9082,9 +9161,9 @@ function printPortalFeeReceipt() {
 <div class="row"><span class="label">Class</span><span class="value">${pupil.cls}</span></div>
 <div class="row"><span class="label">Term</span><span class="value">${feeRec.term||s.term||'-'}</span></div>
 <div class="row"><span class="label">Academic Year</span><span class="value">${s.session||'-'}</span></div>
-<div class="row"><span class="label">Total Fee Due</span><span class="value">GH₵${(feeRec.due||0).toFixed(2)}</span></div>
-<div class="row"><span class="label">Amount Paid</span><span class="value" style="color:#16a34a;">GH₵${(feeRec.paid||0).toFixed(2)}</span></div>
-<div class="total"><span style="font-weight:700;color:#1a6fd4;">Outstanding Balance</span><span style="font-size:18px;font-weight:800;color:${((feeRec.due||0)-(feeRec.paid||0))<=0?'#16a34a':'#dc2626'};">GH₵${((feeRec.due||0)-(feeRec.paid||0)).toFixed(2)}</span></div>
+<div class="row"><span class="label">Total Fee Due</span><span class="value">GH₵${_pDue.toFixed(2)}</span></div>
+<div class="row"><span class="label">Amount Paid</span><span class="value" style="color:#16a34a;">GH₵${_pPaid.toFixed(2)}</span></div>
+<div class="total"><span style="font-weight:700;color:#1a6fd4;">Outstanding Balance</span><span style="font-size:18px;font-weight:800;color:${(_pDue-_pPaid)<=0?'#16a34a':'#dc2626'};">GH₵${(_pDue-_pPaid).toFixed(2)}</span></div>
 <p style="text-align:center;font-size:11px;color:#999;margin-top:20px;">Printed ${new Date().toLocaleString('en-GH')} - EduManage Pro</p>
 <script>window.onload=function(){window.print();}<\/script>
 </body></html>`); win.document.close();
