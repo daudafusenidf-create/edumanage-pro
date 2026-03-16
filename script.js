@@ -1248,6 +1248,3 @@ document.addEventListener('DOMContentLoaded', () => {
   const logoutBtn = document.getElementById('logoutBtn');
   if (logoutBtn) logoutBtn.style.display = 'inline-flex';
 });
-
-// Note: The rest of the functions (renderStudents, renderTeachers, etc.) 
-// remain exactly as in the original file and are not included here for brevity
