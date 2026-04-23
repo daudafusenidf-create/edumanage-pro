@@ -10,7 +10,7 @@
   --yellow:#d97706; --yellow-light:#fef3c7;
   --purple:#7c3aed; --purple-light:#ede9fe;
   --sidebar-w:260px; --topbar-h:68px;
-  --bg:#f4f7fc; --surface:#fff; --border:#dde3ef;
+  --bg:#f4f7fc; --bg-light:#f8fafc; --surface:#fff; --white:#fff; --border:#dde3ef;
   --shadow-sm:0 1px 4px rgba(26,111,212,.07);
   --shadow-md:0 4px 20px rgba(26,111,212,.10);
   --shadow-lg:0 8px 40px rgba(26,111,212,.14);

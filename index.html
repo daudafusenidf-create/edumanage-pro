@@ -22,6 +22,9 @@
       <p style="font-size:13px;color:var(--text-muted);margin:18px 0 10px;font-weight:600;text-align:left;">SELECT YOUR SCHOOL</p>
       <div id="schoolListContainer" style="max-height:280px;overflow-y:auto;"></div>
 
+      <button class="btn-primary" id="registerNewSchoolBtn" style="width:100%;margin-top:14px;justify-content:center;">
+        <i class="fas fa-plus-circle"></i> Register New School
+      </button>
       <button class="btn-ghost" id="restoreSchoolBtn" style="width:100%;margin-top:8px;justify-content:center;font-size:12px;">
         <i class="fas fa-trash-restore"></i> Restore Deleted School
       </button>
@@ -32,7 +35,7 @@
       <div style="margin-top:20px;padding-top:14px;border-top:1px solid var(--border);text-align:center;font-size:11px;color:var(--text-muted);line-height:1.8;">
         <div style="font-weight:700;font-size:12px;color:var(--text);margin-bottom:2px;"><i class="fas fa-laptop-code" style="color:var(--blue);"></i> TechPoint &amp; Graphics</div>
         <div>CEO: <strong>Mr. Fuseni Dauda</strong></div>
-        <div><i class="fas fa-envelope" style="color:var(--blue);font-size:10px;"></i> <a href="/cdn-cgi/l/email-protection#fb9f9a8e9f9a9d8e889e9592d59f9dbb9c969a9297d5989496" style="color:var(--blue);text-decoration:none;"><span class="__cf_email__" data-cfemail="c6a2a7b3a2a7a0b3b5a3a8afe8a2a086a1aba7afaae8a5a9ab">[email&#160;protected]</span></a></div>
+        <div><i class="fas fa-envelope" style="color:var(--blue);font-size:10px;"></i> <a href="mailto:techpointgraphics@gmail.com" style="color:var(--blue);text-decoration:none;">techpointgraphics@gmail.com</a></div>
         <div><i class="fas fa-phone" style="color:var(--blue);font-size:10px;"></i> <a href="tel:+233241215173" style="color:var(--blue);text-decoration:none;">0241215173</a></div>
       </div>
     </div>
@@ -172,7 +175,7 @@
       </div>
       <div class="modal-body">
         <div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--blue);">
-          <i class="fas fa-info-circle"></i> Your registration will be reviewed and <strong>approved within 24 hours</strong>. You will receive your login details once approved.
+          <i class="fas fa-check-circle"></i> Your school will be <strong>registered and activated immediately</strong>. You can log in right away with your chosen username and password.
         </div>
         <div id="registerFormError" style="display:none;background:#fee2e2;color:#dc2626;border-radius:7px;padding:9px 13px;margin-bottom:12px;font-size:13px;"></div>
         <div class="form-row">
@@ -220,13 +223,13 @@
         <div style="font-size:56px;margin-bottom:16px;">🎉</div>
         <h3 style="margin-bottom:8px;color:var(--blue);">Registration Submitted!</h3>
         <p style="color:var(--text-muted);font-size:14px;margin-bottom:16px;">
-          <strong id="regSuccessSchoolName"></strong> has been submitted for review.<br><br>
-          Your account will be <strong>activated within 24 hours</strong> once approved by the system administrator.
+          <strong id="regSuccessSchoolName"></strong> has been registered successfully!<br><br>
+          You can now <strong>log in immediately</strong> using your username and password.
         </p>
         <div style="background:var(--bg);border-radius:8px;padding:12px;font-size:13px;color:var(--text-muted);text-align:left;">
-          <i class="fas fa-check-circle" style="color:#22c55e;"></i> Registration submitted<br>
-          <i class="fas fa-clock" style="color:#f59e0b;"></i> Awaiting admin approval<br>
-          <i class="fas fa-unlock" style="color:var(--blue-light);"></i> Then you can log in
+          <i class="fas fa-check-circle" style="color:#22c55e;"></i> School registered &amp; activated<br>
+          <i class="fas fa-user-shield" style="color:var(--blue);"></i> Admin account ready<br>
+          <i class="fas fa-sign-in-alt" style="color:#22c55e;"></i> You can log in now
         </div>
         <button class="btn-primary" style="margin-top:20px;width:100%;" onclick="document.getElementById('regSuccessModal').classList.remove('open')">
           <i class="fas fa-check"></i> Got it
@@ -1106,8 +1109,9 @@
               </div>
               <div class="form-group">
                 <label>Term Fee Due (GH₵)</label>
-                <input type="number" class="form-input" id="fDue" placeholder="Auto-filled or enter manually" min="0"
-                  title="Auto-filled from Fee Structure. If no structure is set, enter the amount manually."/>
+                <input type="number" class="form-input" id="fDue" placeholder="Set in Fee Structure" min="0" readonly
+                  style="background:var(--bg-light);color:var(--text-muted);cursor:not-allowed;"
+                  title="Fee amount is set in Fee Structure — cannot be changed here"/>
                 <div id="fDueStructureNotice" style="display:none;font-size:11px;color:var(--blue);margin-top:3px;">
                   <i class="fas fa-lock" style="font-size:9px;"></i> From Fee Structure
                 </div>
@@ -1133,18 +1137,8 @@
                   <input type="date" class="form-input" id="fNewPayDate"/>
                 </div>
                 <div class="form-group" style="margin:0;flex:1;">
-                  <label style="font-size:11px;">Method</label>
-                  <select class="form-input" id="fNewPayMethod">
-                    <option value="Cash">Cash</option>
-                    <option value="MoMo">MoMo</option>
-                    <option value="Bank Transfer">Bank Transfer</option>
-                    <option value="Cheque">Cheque</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-                <div class="form-group" style="margin:0;flex:1;">
                   <label style="font-size:11px;">Note (optional)</label>
-                  <input type="text" class="form-input" id="fNewPayNote" placeholder="e.g. Instalment 1"/>
+                  <input type="text" class="form-input" id="fNewPayNote" placeholder="e.g. Cash"/>
                 </div>
                 <button type="button" class="btn-primary" onclick="addPaymentEntry()" style="white-space:nowrap;padding:8px 14px;"><i class="fas fa-plus"></i> Add</button>
               </div>
@@ -1209,6 +1203,7 @@
           </div>
           <div class="modal-foot">
             <button class="btn-ghost" onclick="document.getElementById('feeStructureModal').classList.remove('open')">Close</button>
+            <button class="btn-primary" onclick="saveFeeStructureAndClose()"><i class="fas fa-save"></i> Save &amp; Close</button>
           </div>
         </div>
       </div>
@@ -1403,6 +1398,18 @@
         </div>
       </div>
       <div class="classes-grid" id="classesGrid"></div>
+
+      <!-- ✅ NEW: Subject Assignments per Class -->
+      <div class="card" style="margin-top:24px;">
+        <div class="card-head">
+          <div>
+            <h2 class="card-title"><i class="fas fa-book"></i> Subject Assignments per Class</h2>
+            <p style="font-size:12px;color:var(--text-muted);margin-top:4px;">Subjects assigned here will auto-load when generating report cards for pupils in that class.</p>
+          </div>
+        </div>
+        <div id="classSubjectsWrap" style="padding:4px 0;"></div>
+      </div>
+
       <div class="modal-overlay" id="classModal">
         <div class="modal">
           <div class="modal-head"><h3 id="classModalTitle">Add Class</h3><button class="modal-close" id="closeClassModal"><i class="fas fa-times"></i></button></div>
